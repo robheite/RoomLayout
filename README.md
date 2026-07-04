@@ -20,11 +20,15 @@ The planner supports:
 - individual wall elevation planning
 - combined floor and wall review
 - manual item entry with name, dimensions, quantity, notes, and URL
+- layout import from previously exported JSON
 - saved layouts in the browser
 - JSON layout export
 - CSV shopping list export
+- PNG print export for the floor plan and each wall
 
 Wall views follow the "stand in the center and rotate to face the wall" rule, so left and right stay intuitive as you move from the floor plan to each wall.
+
+Items placed in a corner can appear in both wall views when they are within the wall snap distance of both walls. Each wall projection uses the dimension that actually runs along that wall, so a shelf can show its front width on one wall and its side depth on the adjacent wall.
 
 ## Input Files
 
