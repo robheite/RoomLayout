@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bekka Craft Room Planner</title>
+  <link rel="stylesheet" href="bekka-craft-room-planner.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>Bekka Craft Room Planner</h1>
+      <p>Room from SketchUp export: 151.5 in x 156 in, 96 in walls.</p>
+    </div>
+    <div class="top-actions">
+      <button id="savePlanBtn" class="primary">Save Layout</button>
+      <button id="exportPlanBtn">Export Layout</button>
+      <button id="exportShoppingBtn">Shopping List</button>
+    </div>
+  </header>
+  <div id="statusBar" class="status-bar" role="status" aria-live="polite"></div>
+
+  <main class="shell">
+    <aside class="panel left-panel">
+      <section>
+        <h2>View</h2>
+        <div class="segmented" role="tablist" aria-label="Planner view">
+          <button class="active" data-view="floor">Floor</button>
+          <button data-view="wall">Wall</button>
+          <button data-view="combo">Both</button>
+        </div>
+      </section>
+
+      <section>
+        <h2>Item</h2>
+        <form id="itemForm" autocomplete="off">
+          <label>Name
+            <input id="itemName" required placeholder="Kallax shelf, table, pegboard">
+          </label>
+          <div class="grid-2">
+            <label>Width
+              <input id="itemWidth" type="number" min="1" step="0.25" value="30">
+            </label>
+            <label>Depth
+              <input id="itemDepth" type="number" min="1" step="0.25" value="15">
+            </label>
+          </div>
+          <div class="grid-2">
+            <label>Height
+              <input id="itemHeight" type="number" min="1" step="0.25" value="30">
+            </label>
+            <label>Qty
+              <input id="itemQty" type="number" min="1" step="1" value="1">
+            </label>
+          </div>
+          <label>URL
+            <input id="itemUrl" type="url" placeholder="https://...">
+          </label>
+          <div class="grid-2">
+            <label>Kind
+              <select id="itemKind">
+                <option value="floor">Floor item</option>
+                <option value="wall">Wall mounted</option>
+                <option value="both">Floor + wall</option>
+              </select>
+            </label>
+            <label>Wall
+              <select id="itemWall">
+                <option value="north">Back</option>
+                <option value="south">Family Room</option>
+                <option value="east">Kitchen</option>
+                <option value="west">Outer</option>
+              </select>
+            </label>
+          </div>
+          <label>Notes
+            <textarea id="itemNotes" rows="3" placeholder="Color, finish, needed brackets, etc."></textarea>
+          </label>
+          <div class="button-row">
+            <button type="submit" class="primary" id="addUpdateBtn">Add Item</button>
+            <button type="button" id="newItemBtn">New</button>
+          </div>
+          <button type="button" id="urlAssistBtn" class="wide">Try URL Details</button>
+        </form>
+      </section>
+
+      <section>
+        <h2>Saved</h2>
+        <label>Layout name
+          <input id="saveName" placeholder="Craft room layout">
+        </label>
+        <div class="button-row">
+          <select id="savedPlans"></select>
+          <button id="loadPlanBtn">Load</button>
+        </div>
+        <div class="button-row">
+          <button id="saveWallBtn">Save Wall</button>
+          <button id="resetDemoBtn">Reset</button>
+        </div>
+      </section>
+    </aside>
+
+    <section class="workspace">
+      <div class="workspace-toolbar">
+        <div>
+          <strong id="viewTitle">Floor Plan</strong>
+          <span id="viewSubtitle">Drag items. Select one to edit, nudge, rotate, or delete.</span>
+        </div>
+        <label class="wall-picker">Wall
+          <select id="activeWall">
+                <option value="north">Back - 151.5 in</option>
+                <option value="south">Family Room - 151.5 in</option>
+                <option value="east">Kitchen - 156 in</option>
+                <option value="west">Outer - 156 in</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="canvas-wrap">
+        <canvas id="plannerCanvas" width="1100" height="760"></canvas>
+      </div>
+
+      <section class="help">
+        <h2>Controls</h2>
+        <div class="help-grid">
+          <div><strong>Drag</strong><span>Move the selected item on the floor or wall.</span></div>
+          <div><strong>Click</strong><span>Select an item and load its measurements.</span></div>
+          <div><strong>Nudge</strong><span>Use arrow buttons for small trackpad-friendly moves.</span></div>
+          <div><strong>Fixed</strong><span>Doors, windows, and outlets are locked from the SketchUp export.</span></div>
+        </div>
+      </section>
+    </section>
+
+    <aside class="panel right-panel">
+      <section>
+        <h2>Selected</h2>
+        <p id="selectedSummary" class="muted">No item selected.</p>
+        <div class="nudge-pad" aria-label="Nudge selected item">
+          <span></span><button data-nudge="up">Up</button><span></span>
+          <button data-nudge="left">Left</button><button data-nudge="down">Down</button><button data-nudge="right">Right</button>
+        </div>
+        <div class="button-row">
+          <button id="rotateBtn">Rotate</button>
+          <button id="duplicateBtn">Duplicate</button>
+        </div>
+        <button id="deleteBtn" class="danger wide">Delete Selected</button>
+      </section>
+
+      <section>
+        <h2>Placed Items</h2>
+        <div id="itemList" class="item-list"></div>
+      </section>
+
+      <section>
+        <h2>Model Info</h2>
+        <img class="thumb" src="room-thumbnail.svg" alt="Room thumbnail">
+        <dl class="model-info">
+          <dt>Source</dt><dd>SketchUp 26.2.243</dd>
+          <dt>Created</dt><dd>2026-07-04 19:02 UTC</dd>
+          <dt>Units</dt><dd>Inches</dd>
+          <dt>Floor</dt><dd>151.5 in x 156 in</dd>
+          <dt>Walls</dt><dd>96 in high</dd>
+          <dt>Fixed</dt><dd>Back window, Kitchen split door, Family Room folding door, Outer outlets</dd>
+        </dl>
+      </section>
+    </aside>
+  </main>
+
+  <section id="exportPanel" class="export-panel" aria-label="Export output" hidden>
+    <div class="export-box">
+      <div class="export-head">
+        <div>
+          <h2 id="exportTitle">Export</h2>
+          <p id="exportHint">If the download did not start, copy this text or use Download again.</p>
+        </div>
+        <button id="closeExportBtn">Close</button>
+      </div>
+      <textarea id="exportText" spellcheck="false"></textarea>
+      <div class="button-row">
+        <button id="copyExportBtn" class="primary">Copy</button>
+        <button id="downloadAgainBtn">Download</button>
+      </div>
+    </div>
+  </section>
+
+  <script src="bekka-craft-room-planner.js"></script>
+</body>
+</html>
