@@ -1,0 +1,9 @@
+{
+  "sourceNorth": "yMin",
+  "labels": {
+    "north": "Back",
+    "east": "Kitchen",
+    "south": "Family Room",
+    "west": "Outer"
+  }
+}
