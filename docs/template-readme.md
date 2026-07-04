@@ -93,6 +93,7 @@ Inside the planner:
 - Use Wall view for shelves, pegboards, cabinets, outlets, and door/window clearance.
 - Use Both view to compare floor placement with the active wall.
 - Add items with name, dimensions, quantity, URL, and notes.
+- Pick an item color with the color picker or type a hex code.
 - Drag items with the mouse or trackpad.
 - Use the controls panel for precise dimensions and wall assignment.
 - Check two or more floor/floor+wall items in the placed item list and use Group Checked to move them as one odd-shaped object.

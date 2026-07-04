@@ -207,6 +207,18 @@ textarea { resize: vertical; }
   gap: 8px;
 }
 
+.color-row {
+  display: grid;
+  grid-template-columns: 52px 1fr;
+  gap: 8px;
+  align-items: center;
+}
+
+.color-row input[type="color"] {
+  min-height: 42px;
+  padding: 4px;
+}
+
 .wall-picker {
   min-width: 190px;
   margin: 0;

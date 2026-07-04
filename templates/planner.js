@@ -104,6 +104,7 @@ const FIXED_ELEMENTS = [
 const STORAGE_KEY = "bekkaCraftRoomPlanner.v1";
 const PLAN_LIST_KEY = "bekkaCraftRoomPlanner.planList.v1";
 const WALL_SNAP_DISTANCE = 4;
+let itemIdCounter = 0;
 
 let state = {
   view: "floor",
@@ -127,7 +128,7 @@ let statusTimer = null;
 let lastExport = null;
 
 function makeItem(overrides = {}) {
-  const id = overrides.id || `item-${Date.now()}-${Math.round(Math.random() * 100000)}`;
+  const id = overrides.id || createItemId();
   const cleanOverrides = { ...overrides };
   if (!cleanOverrides.id) delete cleanOverrides.id;
   const item = {
@@ -150,6 +151,14 @@ function makeItem(overrides = {}) {
     groupItems: []
   };
   return { ...item, ...cleanOverrides };
+}
+
+function createItemId() {
+  itemIdCounter += 1;
+  const cryptoPart = window.crypto?.getRandomValues
+    ? window.crypto.getRandomValues(new Uint32Array(1))[0].toString(36)
+    : Math.round(Math.random() * 1000000000).toString(36);
+  return `item-${Date.now()}-${itemIdCounter}-${cryptoPart}`;
 }
 
 function init() {
@@ -175,6 +184,22 @@ function bindEvents() {
     state.activeWall = event.target.value;
     document.getElementById("activeWall").value = state.activeWall;
     render();
+  });
+  document.getElementById("itemKind").addEventListener("change", event => {
+    const editing = selectedItem();
+    const currentColor = normalizeHexColor(value("itemColorHex")) || document.getElementById("itemColor").value;
+    const oldDefault = editing && !isGroup(editing) ? defaultColorForKind(editing.kind) : "";
+    if (!state.editingId || currentColor === oldDefault) syncColorInputs(defaultColorForKind(event.target.value));
+  });
+  document.getElementById("itemColor").addEventListener("input", event => {
+    syncColorInputs(event.target.value, "picker");
+  });
+  document.getElementById("itemColorHex").addEventListener("input", event => {
+    const normalized = normalizeHexColor(event.target.value);
+    if (normalized) syncColorInputs(normalized, "hex");
+  });
+  document.getElementById("itemColorHex").addEventListener("blur", event => {
+    syncColorInputs(normalizeHexColor(event.target.value) || document.getElementById("itemColor").value);
   });
   document.getElementById("itemForm").addEventListener("submit", saveFormItem);
   document.getElementById("newItemBtn").addEventListener("click", clearForm);
@@ -249,14 +274,15 @@ function saveFormItem(event) {
         qty: formItem.qty,
         url: formItem.url,
         notes: formItem.notes,
-        wall: formItem.wall
+        wall: formItem.wall,
+        color: formItem.color
       });
+      item.groupItems = item.groupItems.map(part => ({ ...part, color: formItem.color }));
     } else {
       Object.assign(item, formItem);
     }
   } else {
     item = makeItem(formItem);
-    item.color = item.kind === "wall" ? "#7cc2b8" : item.kind === "both" ? "#f29d72" : "#f2c14e";
     state.items.push(item);
   }
   if (item.kind === "both") syncWallFromFloor(item);
@@ -277,7 +303,8 @@ function readForm() {
     url: value("itemUrl"),
     notes: value("itemNotes"),
     kind: value("itemKind"),
-    wall: value("itemWall")
+    wall: value("itemWall"),
+    color: normalizeHexColor(value("itemColorHex")) || value("itemColor") || defaultColorForKind(value("itemKind"))
   };
 }
 
@@ -292,6 +319,7 @@ function fillForm(item) {
   setValue("itemNotes", item?.notes || "");
   setValue("itemKind", isGroup(item) ? "floor" : item?.kind || "floor");
   setValue("itemWall", item?.wall || state.activeWall);
+  syncColorInputs(item?.color || defaultColorForKind(item?.kind || value("itemKind") || "floor"));
   document.getElementById("addUpdateBtn").textContent = isGroup(item) ? "Update Group" : item ? "Update Item" : "Add Item";
 }
 
@@ -305,6 +333,28 @@ function clearForm() {
 
 function value(id) {
   return document.getElementById(id).value.trim();
+}
+
+function defaultColorForKind(kind) {
+  if (kind === "wall") return "#7cc2b8";
+  if (kind === "both") return "#f29d72";
+  if (kind === "group") return "#d8b4fe";
+  return "#f2c14e";
+}
+
+function normalizeHexColor(color) {
+  const raw = String(color || "").trim();
+  const match = raw.match(/^#?([0-9a-fA-F]{6})$/);
+  return match ? `#${match[1].toLowerCase()}` : "";
+}
+
+function syncColorInputs(color, source = "") {
+  const normalized = normalizeHexColor(color) || defaultColorForKind(value("itemKind") || "floor");
+  const picker = document.getElementById("itemColor");
+  const hex = document.getElementById("itemColorHex");
+  if (source !== "hex") hex.value = normalized;
+  if (source !== "picker") picker.value = normalized;
+  if (source === "picker") hex.value = normalized;
 }
 
 function numberValue(id, fallback) {
@@ -1205,6 +1255,7 @@ function importLayout(event) {
         wallX: Number(item.wallX) || 0,
         wallY: Number(item.wallY) || 0,
         rotation: Number(item.rotation) || 0,
+        color: normalizeHexColor(item.color) || defaultColorForKind(item.kind),
         groupItems: Array.isArray(item.groupItems) ? item.groupItems.map(part => ({
           ...part,
           width: Number(part.width) || 1,
@@ -1217,7 +1268,8 @@ function importLayout(event) {
           y: Number(part.y) || 0,
           wallX: Number(part.wallX) || 0,
           wallY: Number(part.wallY) || 0,
-          rotation: Number(part.rotation) || 0
+          rotation: Number(part.rotation) || 0,
+          color: normalizeHexColor(part.color) || defaultColorForKind(part.kind)
         })) : []
       }));
       state = {
@@ -1255,7 +1307,7 @@ function saveActiveWall() {
 }
 
 function exportShoppingList() {
-  const headers = ["Name", "Qty", "Width", "Depth", "Height", "Kind", "Wall Views", "URL", "Notes"];
+  const headers = ["Name", "Qty", "Width", "Depth", "Height", "Kind", "Color", "Wall Views", "URL", "Notes"];
   const rows = state.items.map(item => [
     item.name,
     item.qty,
@@ -1263,6 +1315,7 @@ function exportShoppingList() {
     round(item.depth),
     round(item.height),
     item.kind,
+    item.color,
     wallLabelsForItem(item),
     item.url,
     item.notes
