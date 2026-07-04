@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 420" role="img" aria-label="Room planner thumbnail">
+  <rect width="640" height="420" fill="#f5f7fa"/>
+  <rect x="78" y="58" width="484" height="304" fill="#c8945d" stroke="#536570" stroke-width="10"/>
+  <rect x="270" y="58" width="118" height="12" fill="#d9eef8" stroke="#4d8ebd" stroke-width="4"/>
+  <rect x="562" y="180" width="12" height="92" fill="#a8774a" stroke="#8b5e3c" stroke-width="4"/>
+  <rect x="250" y="350" width="150" height="12" fill="#a8774a" stroke="#8b5e3c" stroke-width="4"/>
+  <circle cx="82" cy="285" r="8" fill="#c2410c"/>
+  <circle cx="535" cy="345" r="8" fill="#c2410c"/>
+  <rect x="118" y="100" width="104" height="54" rx="4" fill="#ff9f72" stroke="#1479c9" stroke-width="7"/>
+  <rect x="348" y="118" width="180" height="84" rx="4" fill="#f8c953" stroke="#2f4858" stroke-width="5"/>
+  <text x="320" y="392" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="28" fill="#2f4858">RoomLayout</text>
+</svg>
