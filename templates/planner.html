@@ -14,8 +14,11 @@
     </div>
     <div class="top-actions">
       <button id="savePlanBtn" class="primary">Save Layout</button>
+      <button id="importPlanBtn">Import Layout</button>
       <button id="exportPlanBtn">Export Layout</button>
       <button id="exportShoppingBtn">Shopping List</button>
+      <button id="exportPrintBtn">Print PNGs</button>
+      <input id="importPlanFile" type="file" accept="application/json,.json" hidden>
     </div>
   </header>
   <div id="statusBar" class="status-bar" role="status" aria-live="polite"></div>
@@ -126,6 +129,8 @@
           <div><strong>Drag</strong><span>Move the selected item on the floor or wall.</span></div>
           <div><strong>Click</strong><span>Select an item and load its measurements.</span></div>
           <div><strong>Nudge</strong><span>Use arrow buttons for small trackpad-friendly moves.</span></div>
+          <div><strong>Import</strong><span>Bring a saved JSON layout back into this planner.</span></div>
+          <div><strong>Print</strong><span>Download PNG views for the floor and each wall.</span></div>
           <div><strong>Fixed</strong><span>Doors, windows, and outlets are locked from the SketchUp export.</span></div>
         </div>
       </section>
