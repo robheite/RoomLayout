@@ -118,7 +118,7 @@ let state = {
 };
 
 const canvas = document.getElementById("plannerCanvas");
-const ctx = canvas.getContext("2d");
+let ctx = canvas.getContext("2d");
 let layout = {};
 let drag = null;
 let suppressWallFocus = false;
@@ -176,8 +176,11 @@ function bindEvents() {
   document.getElementById("newItemBtn").addEventListener("click", clearForm);
   document.getElementById("savePlanBtn").addEventListener("click", saveNamedPlan);
   document.getElementById("loadPlanBtn").addEventListener("click", loadNamedPlan);
+  document.getElementById("importPlanBtn").addEventListener("click", () => document.getElementById("importPlanFile").click());
+  document.getElementById("importPlanFile").addEventListener("change", importLayout);
   document.getElementById("exportPlanBtn").addEventListener("click", exportLayout);
   document.getElementById("exportShoppingBtn").addEventListener("click", exportShoppingList);
+  document.getElementById("exportPrintBtn").addEventListener("click", exportPrintViews);
   document.getElementById("saveWallBtn").addEventListener("click", saveActiveWall);
   document.getElementById("resetDemoBtn").addEventListener("click", resetDemo);
   document.getElementById("rotateBtn").addEventListener("click", rotateSelected);
@@ -302,7 +305,17 @@ function render() {
   updateViewHeader();
   const rect = canvas.getBoundingClientRect();
   ctx.clearRect(0, 0, rect.width, rect.height);
-  computeLayout(rect.width, rect.height);
+  renderScene(rect.width, rect.height);
+  updateItemList();
+  updateSelectionPanel();
+}
+
+function renderScene(width, height) {
+  ctx.save();
+  ctx.fillStyle = "#fbfcfd";
+  ctx.fillRect(0, 0, width, height);
+  ctx.restore();
+  computeLayout(width, height);
   if (state.view === "floor") drawFloor(layout.floor);
   if (state.view === "wall") drawWall(layout.wall, state.activeWall);
   if (state.view === "combo") {
@@ -311,8 +324,6 @@ function render() {
   }
   drawFixedElements();
   drawItems();
-  updateItemList();
-  updateSelectionPanel();
 }
 
 function updateViewHeader() {
@@ -527,8 +538,8 @@ function getDrawableItems() {
   if ((state.view === "wall" || state.view === "combo") && (layout.wall || layout.comboWall)) {
     const box = state.view === "combo" ? layout.comboWall : layout.wall;
     state.items.forEach(item => {
-      const placement = projectedWallPlacement(item);
-      if (!placement || placement.wall !== state.activeWall) return;
+      const placement = projectedWallPlacement(item, state.activeWall);
+      if (!placement) return;
       entries.push({
         mode: "wall",
         item,
@@ -537,7 +548,7 @@ function getDrawableItems() {
         wallY: placement.wallY,
         x: box.x + placement.wallX * box.scale,
         y: box.y + box.h - (placement.wallY + item.height) * box.scale,
-        w: item.width * box.scale,
+        w: placement.width * box.scale,
         h: item.height * box.scale
       });
     });
@@ -550,34 +561,58 @@ function floorDims(item) {
 }
 
 function nearestWallInfo(item) {
+  return snappedWallInfos(item).reduce((best, next) => next.distance < best.distance ? next : best);
+}
+
+function snappedWallInfos(item) {
   const dims = floorDims(item);
-  const distances = [
+  return [
     { wall: "north", distance: item.y },
     { wall: "south", distance: ROOM.depth - (item.y + dims.d) },
     { wall: "west", distance: item.x },
     { wall: "east", distance: ROOM.width - (item.x + dims.w) }
   ];
-  return distances.reduce((best, next) => next.distance < best.distance ? next : best);
+}
+
+function wallsNearFloorItem(item) {
+  return snappedWallInfos(item).filter(info => info.distance <= WALL_SNAP_DISTANCE);
+}
+
+function wallProjectionWidth(item, wallKey) {
+  if (item.kind === "wall") return item.width;
+  const dims = floorDims(item);
+  return wallKey === "north" || wallKey === "south" ? dims.w : dims.d;
 }
 
 function wallXFromFloor(item, wallKey) {
-  if (wallKey === "north") return clamp(item.x, 0, ROOM.walls[wallKey].width - item.width);
-  if (wallKey === "south") return clamp(ROOM.width - (item.x + item.width), 0, ROOM.walls[wallKey].width - item.width);
-  if (wallKey === "east") return clamp(item.y, 0, ROOM.walls[wallKey].width - item.width);
-  return clamp(ROOM.depth - (item.y + item.width), 0, ROOM.walls[wallKey].width - item.width);
+  const dims = floorDims(item);
+  const projectionWidth = wallProjectionWidth(item, wallKey);
+  if (wallKey === "north") return clamp(item.x, 0, ROOM.walls[wallKey].width - projectionWidth);
+  if (wallKey === "south") return clamp(ROOM.width - (item.x + dims.w), 0, ROOM.walls[wallKey].width - projectionWidth);
+  if (wallKey === "east") return clamp(item.y, 0, ROOM.walls[wallKey].width - projectionWidth);
+  return clamp(ROOM.depth - (item.y + dims.d), 0, ROOM.walls[wallKey].width - projectionWidth);
 }
 
-function projectedWallPlacement(item) {
+function projectedWallPlacement(item, wallKey = null) {
+  const placements = projectedWallPlacements(item);
+  if (wallKey) return placements.find(placement => placement.wall === wallKey) || null;
+  return placements.find(placement => placement.wall === item.wall) || placements[0] || null;
+}
+
+function projectedWallPlacements(item) {
   if (item.kind === "wall") {
-    return { wall: item.wall, wallX: item.wallX, wallY: item.wallY };
+    return [{ wall: item.wall, wallX: item.wallX, wallY: item.wallY, width: item.width }];
   }
   const nearest = nearestWallInfo(item);
-  if (item.kind === "floor" && nearest.distance > WALL_SNAP_DISTANCE) return null;
-  return {
-    wall: item.kind === "both" ? item.wall : nearest.wall,
-    wallX: item.kind === "both" ? item.wallX : wallXFromFloor(item, nearest.wall),
-    wallY: item.kind === "floor" ? 0 : item.wallY
-  };
+  const snapped = wallsNearFloorItem(item);
+  if (item.kind === "floor" && !snapped.length) return [];
+  const walls = snapped.length ? snapped.map(info => info.wall) : [item.wall || nearest.wall];
+  return walls.map(wallKey => ({
+    wall: wallKey,
+    wallX: wallKey === item.wall && item.kind === "both" && !snapped.length ? item.wallX : wallXFromFloor(item, wallKey),
+    wallY: item.kind === "floor" ? 0 : item.wallY,
+    width: wallProjectionWidth(item, wallKey)
+  }));
 }
 
 function syncWallFromFloor(item) {
@@ -641,7 +676,14 @@ function pointerDown(event) {
     startX: point.x,
     startY: point.y,
     pointerId: event.pointerId,
-    itemStart: { x: hit.item.x, y: hit.item.y, wallX: hit.wallX ?? hit.item.wallX, wallY: hit.wallY ?? hit.item.wallY }
+    wall: hit.wall,
+    itemStart: {
+      x: hit.item.x,
+      y: hit.item.y,
+      wallX: hit.wallX ?? hit.item.wallX,
+      wallY: hit.wallY ?? hit.item.wallY,
+      wallWidth: hit.w ? hit.w / (state.view === "combo" ? layout.comboWall.scale : layout.wall?.scale || 1) : hit.item.width
+    }
   };
   canvas.setPointerCapture(event.pointerId);
 }
@@ -660,7 +702,10 @@ function pointerMove(event) {
     syncWallFromFloor(item);
   } else {
     const box = state.view === "combo" ? layout.comboWall : layout.wall;
-    item.wallX = clamp(drag.itemStart.wallX + dx / box.scale, 0, wall().width - item.width);
+    item.wall = drag.wall || item.wall;
+    state.activeWall = item.wall;
+    document.getElementById("activeWall").value = item.wall;
+    item.wallX = clamp(drag.itemStart.wallX + dx / box.scale, 0, ROOM.walls[item.wall].width - drag.itemStart.wallWidth);
     item.wallY = clamp(drag.itemStart.wallY - dy / box.scale, 0, ROOM.height - item.height);
     syncFloorFromWall(item);
   }
@@ -740,11 +785,18 @@ function nudgeSelected(direction) {
   if (!item) return;
   const step = 1;
   if (state.view === "wall" || (state.view === "combo" && item.kind === "wall")) {
+    const placement = projectedWallPlacement(item, state.activeWall) || projectedWallPlacement(item);
+    if (placement && item.kind !== "wall") {
+      item.wall = placement.wall;
+      item.wallX = placement.wallX;
+      item.wallY = placement.wallY;
+    }
+    const wallWidth = placement?.width || item.width;
     if (direction === "left") item.wallX -= step;
     if (direction === "right") item.wallX += step;
     if (direction === "up") item.wallY += step;
     if (direction === "down") item.wallY -= step;
-    item.wallX = clamp(item.wallX, 0, ROOM.walls[item.wall].width - item.width);
+    item.wallX = clamp(item.wallX, 0, ROOM.walls[item.wall].width - wallWidth);
     item.wallY = clamp(item.wallY, 0, ROOM.height - item.height);
     syncFloorFromWall(item);
     syncControlsToItemWall(item);
@@ -902,15 +954,64 @@ function exportLayout() {
   showStatus("Layout export is ready. If no file downloaded, use the export panel.");
 }
 
+function importLayout(event) {
+  const file = event.target.files?.[0];
+  event.target.value = "";
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(String(reader.result || ""));
+      const importedState = data.state || (Array.isArray(data.items) ? { items: data.items } : null);
+      if (!importedState || !Array.isArray(importedState.items)) throw new Error("No layout items found.");
+      const importedItems = importedState.items.map(item => makeItem({
+        ...item,
+        id: item.id || undefined,
+        width: Number(item.width) || 1,
+        depth: Number(item.depth) || 1,
+        height: Number(item.height) || 1,
+        qty: Number(item.qty) || 1,
+        x: Number(item.x) || 0,
+        y: Number(item.y) || 0,
+        wallX: Number(item.wallX) || 0,
+        wallY: Number(item.wallY) || 0,
+        rotation: Number(item.rotation) || 0
+      }));
+      state = {
+        ...state,
+        ...importedState,
+        items: importedItems,
+        selectedId: importedState.selectedId || importedItems[0]?.id || null,
+        editingId: null,
+        activeWall: importedState.activeWall || state.activeWall || "north",
+        view: importedState.view || state.view || "floor"
+      };
+      document.getElementById("activeWall").value = state.activeWall;
+      setView(state.view);
+      selectItem(state.selectedId);
+      autosave();
+      render();
+      const roomMismatch = data.room && (Number(data.room.width) !== ROOM.width || Number(data.room.depth) !== ROOM.depth);
+      showStatus(roomMismatch ? "Imported layout. Note: the saved room dimensions differ from this planner." : `Imported ${importedItems.length} items from ${file.name}.`);
+    } catch (error) {
+      showStatus(`Import failed: ${error.message}`);
+    }
+  };
+  reader.readAsText(file);
+}
+
 function saveActiveWall() {
   const wallKey = state.activeWall;
-  const items = state.items.filter(item => item.kind !== "floor" && item.wall === wallKey);
+  const items = state.items
+    .map(item => ({ item, placement: projectedWallPlacement(item, wallKey) }))
+    .filter(entry => entry.placement)
+    .map(entry => ({ ...entry.item, wallProjection: entry.placement }));
   downloadJson(`bekka-craft-room-${wallKey}-wall.json`, exportObject({ wall: ROOM.walls[wallKey], wallKey, items }));
   showStatus(`${ROOM.walls[wallKey].label} wall export is ready.`);
 }
 
 function exportShoppingList() {
-  const headers = ["Name", "Qty", "Width", "Depth", "Height", "Kind", "Wall", "URL", "Notes"];
+  const headers = ["Name", "Qty", "Width", "Depth", "Height", "Kind", "Wall Views", "URL", "Notes"];
   const rows = state.items.map(item => [
     item.name,
     item.qty,
@@ -918,13 +1019,57 @@ function exportShoppingList() {
     round(item.depth),
     round(item.height),
     item.kind,
-    item.kind === "floor" ? "" : ROOM.walls[item.wall].label,
+    wallLabelsForItem(item),
     item.url,
     item.notes
   ]);
   const csv = [headers, ...rows].map(row => row.map(csvCell).join(",")).join("\n");
   downloadText("bekka-craft-room-shopping-list.csv", csv, "text/csv");
   showStatus("Shopping list export is ready. If no file downloaded, use the export panel.");
+}
+
+async function exportPrintViews() {
+  const views = [
+    { view: "floor", wall: null, filename: "roomlayout-floor-plan.png" },
+    ...Object.keys(ROOM.walls).map(wallKey => ({
+      view: "wall",
+      wall: wallKey,
+      filename: `roomlayout-${ROOM.walls[wallKey].label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}-wall.png`
+    }))
+  ];
+  for (const view of views) {
+    const pngCanvas = renderPrintCanvas(view.view, view.wall);
+    await downloadCanvasPng(view.filename, pngCanvas);
+  }
+  showStatus("PNG print views downloaded for the floor plan and all walls.");
+}
+
+function renderPrintCanvas(view, wallKey) {
+  const output = document.createElement("canvas");
+  output.width = 1800;
+  output.height = 1250;
+  const previous = {
+    ctx,
+    layout,
+    view: state.view,
+    activeWall: state.activeWall,
+    selectedId: state.selectedId
+  };
+  ctx = output.getContext("2d");
+  layout = {};
+  state.view = view;
+  if (wallKey) state.activeWall = wallKey;
+  state.selectedId = null;
+  renderScene(output.width, output.height);
+  ctx.fillStyle = "#1f2933";
+  ctx.font = "24px Segoe UI, Arial";
+  ctx.fillText(view === "floor" ? "Floor Plan" : `${ROOM.walls[wallKey].label} Wall`, 44, output.height - 36);
+  ctx = previous.ctx;
+  layout = previous.layout;
+  state.view = previous.view;
+  state.activeWall = previous.activeWall;
+  state.selectedId = previous.selectedId;
+  return output;
 }
 
 function downloadJson(filename, data) {
@@ -940,18 +1085,31 @@ function downloadText(filename, text, type) {
 function tryDownload(filename, text, type) {
   try {
     const blob = new Blob([text], { type });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = filename;
-    link.rel = "noopener";
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    tryDownloadBlob(filename, blob);
   } catch {
     showStatus("Download was blocked. Copy the export text from the panel instead.");
   }
+}
+
+function tryDownloadBlob(filename, blob) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.rel = "noopener";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function downloadCanvasPng(filename, pngCanvas) {
+  return new Promise(resolve => {
+    pngCanvas.toBlob(blob => {
+      if (blob) tryDownloadBlob(filename, blob);
+      resolve();
+    }, "image/png");
+  });
 }
 
 function showExportPanel(filename, text, type) {
@@ -993,6 +1151,12 @@ function resetDemo() {
 
 function csvCell(value) {
   return `"${String(value ?? "").replaceAll('"', '""')}"`;
+}
+
+function wallLabelsForItem(item) {
+  const placements = projectedWallPlacements(item);
+  if (!placements.length) return item.kind === "floor" ? "" : ROOM.walls[item.wall]?.label || "";
+  return placements.map(placement => ROOM.walls[placement.wall].label).join(" + ");
 }
 
 function clamp(value, min, max) {
