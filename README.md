@@ -20,6 +20,7 @@ The planner supports:
 - individual wall elevation planning
 - combined floor and wall review
 - manual item entry with name, dimensions, quantity, notes, and URL
+- manual Group/Ungroup for combining measured pieces into odd-shaped furniture like L desks
 - layout import from previously exported JSON
 - saved layouts in the browser
 - JSON layout export

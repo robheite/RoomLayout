@@ -263,6 +263,19 @@ textarea { resize: vertical; }
   cursor: pointer;
 }
 
+.item-card-head {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  gap: 8px;
+}
+
+.item-card input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  margin: 1px 0 0;
+}
+
 .item-card.active {
   border-color: var(--accent);
   box-shadow: 0 0 0 2px rgba(11, 107, 203, 0.16);

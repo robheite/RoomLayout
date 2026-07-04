@@ -109,6 +109,7 @@ let state = {
   view: "floor",
   activeWall: "north",
   selectedId: null,
+  multiSelectedIds: [],
   editingId: null,
   items: [
     makeItem({ name: "Work Table", width: 60, depth: 30, height: 34, kind: "floor", x: 22, y: 22, color: "#f2c14e" }),
@@ -127,6 +128,8 @@ let lastExport = null;
 
 function makeItem(overrides = {}) {
   const id = overrides.id || `item-${Date.now()}-${Math.round(Math.random() * 100000)}`;
+  const cleanOverrides = { ...overrides };
+  if (!cleanOverrides.id) delete cleanOverrides.id;
   const item = {
     id,
     name: "New Item",
@@ -143,9 +146,10 @@ function makeItem(overrides = {}) {
     wallX: 8,
     wallY: 8,
     rotation: 0,
-    color: "#f2c14e"
+    color: "#f2c14e",
+    groupItems: []
   };
-  return { ...item, ...overrides };
+  return { ...item, ...cleanOverrides };
 }
 
 function init() {
@@ -185,6 +189,8 @@ function bindEvents() {
   document.getElementById("resetDemoBtn").addEventListener("click", resetDemo);
   document.getElementById("rotateBtn").addEventListener("click", rotateSelected);
   document.getElementById("duplicateBtn").addEventListener("click", duplicateSelected);
+  document.getElementById("groupBtn").addEventListener("click", groupCheckedItems);
+  document.getElementById("ungroupBtn").addEventListener("click", ungroupSelected);
   document.getElementById("deleteBtn").addEventListener("click", deleteSelected);
   document.getElementById("urlAssistBtn").addEventListener("click", tryUrlDetails);
   document.getElementById("closeExportBtn").addEventListener("click", closeExportPanel);
@@ -237,7 +243,17 @@ function saveFormItem(event) {
   let item;
   if (state.editingId) {
     item = state.items.find(entry => entry.id === state.editingId);
-    Object.assign(item, formItem);
+    if (isGroup(item)) {
+      Object.assign(item, {
+        name: formItem.name,
+        qty: formItem.qty,
+        url: formItem.url,
+        notes: formItem.notes,
+        wall: formItem.wall
+      });
+    } else {
+      Object.assign(item, formItem);
+    }
   } else {
     item = makeItem(formItem);
     item.color = item.kind === "wall" ? "#7cc2b8" : item.kind === "both" ? "#f29d72" : "#f2c14e";
@@ -274,9 +290,9 @@ function fillForm(item) {
   setValue("itemQty", item?.qty || 1);
   setValue("itemUrl", item?.url || "");
   setValue("itemNotes", item?.notes || "");
-  setValue("itemKind", item?.kind || "floor");
+  setValue("itemKind", isGroup(item) ? "floor" : item?.kind || "floor");
   setValue("itemWall", item?.wall || state.activeWall);
-  document.getElementById("addUpdateBtn").textContent = item ? "Update Item" : "Add Item";
+  document.getElementById("addUpdateBtn").textContent = isGroup(item) ? "Update Group" : item ? "Update Item" : "Add Item";
 }
 
 function clearForm() {
@@ -482,14 +498,15 @@ function drawItems() {
   const boxes = getDrawableItems();
   boxes.forEach(entry => {
     const selected = entry.item.id === state.selectedId;
-    ctx.fillStyle = entry.item.color;
+    ctx.fillStyle = entry.color || entry.item.color;
     ctx.strokeStyle = selected ? "#0b6bcb" : "#33414d";
     ctx.lineWidth = selected ? 4 : 2;
     ctx.fillRect(entry.x, entry.y, entry.w, entry.h);
     ctx.strokeRect(entry.x, entry.y, entry.w, entry.h);
     ctx.fillStyle = "#1f2933";
     ctx.font = "13px Segoe UI, Arial";
-    const label = entry.item.qty > 1 ? `${entry.item.name} x${entry.item.qty}` : entry.item.name;
+    const baseLabel = entry.label || entry.item.name;
+    const label = entry.item.qty > 1 && !entry.label ? `${baseLabel} x${entry.item.qty}` : baseLabel;
     wrapLabel(label, entry.x + 6, entry.y + 18, Math.max(20, entry.w - 10));
     if (selected) drawHandles(entry);
   });
@@ -524,6 +541,10 @@ function getDrawableItems() {
   const entries = [];
   if ((state.view === "floor" || state.view === "combo") && layout.floor) {
     state.items.filter(item => item.kind !== "wall").forEach(item => {
+      if (isGroup(item)) {
+        groupFloorEntries(item).forEach(entry => entries.push(entry));
+        return;
+      }
       const dims = floorDims(item);
       entries.push({
         mode: "floor",
@@ -538,6 +559,10 @@ function getDrawableItems() {
   if ((state.view === "wall" || state.view === "combo") && (layout.wall || layout.comboWall)) {
     const box = state.view === "combo" ? layout.comboWall : layout.wall;
     state.items.forEach(item => {
+      if (isGroup(item)) {
+        groupWallEntries(item, box).forEach(entry => entries.push(entry));
+        return;
+      }
       const placement = projectedWallPlacement(item, state.activeWall);
       if (!placement) return;
       entries.push({
@@ -554,6 +579,63 @@ function getDrawableItems() {
     });
   }
   return entries;
+}
+
+function isGroup(item) {
+  return item?.kind === "group" && Array.isArray(item.groupItems);
+}
+
+function groupFloorEntries(group) {
+  return group.groupItems.map(part => {
+    const absolute = groupPartAbsoluteItem(group, part);
+    const dims = floorDims(absolute);
+    return {
+      mode: "floor",
+      item: group,
+      part,
+      label: part.name,
+      color: part.color,
+      x: layout.floor.x + absolute.x * layout.floor.scale,
+      y: layout.floor.y + absolute.y * layout.floor.scale,
+      w: dims.w * layout.floor.scale,
+      h: dims.d * layout.floor.scale
+    };
+  });
+}
+
+function groupWallEntries(group, box) {
+  const entries = [];
+  group.groupItems.forEach(part => {
+    const absolute = groupPartAbsoluteItem(group, part);
+    const placement = projectedWallPlacement(absolute, state.activeWall);
+    if (!placement) return;
+    entries.push({
+      mode: "wall",
+      item: group,
+      part,
+      label: part.name,
+      color: part.color,
+      wall: placement.wall,
+      wallX: placement.wallX,
+      wallY: placement.wallY,
+      x: box.x + placement.wallX * box.scale,
+      y: box.y + box.h - (placement.wallY + absolute.height) * box.scale,
+      w: placement.width * box.scale,
+      h: absolute.height * box.scale
+    });
+  });
+  return entries;
+}
+
+function groupPartAbsoluteItem(group, part) {
+  return makeItem({
+    ...part,
+    id: part.id || `${group.id}-part`,
+    x: group.x + Number(part.offsetX || 0),
+    y: group.y + Number(part.offsetY || 0),
+    wallX: Number(part.wallX || 0),
+    wallY: Number(part.wallY || 0)
+  });
 }
 
 function floorDims(item) {
@@ -666,10 +748,15 @@ function pointerDown(event) {
   }
   selectItem(hit.item.id);
   if (hit.mode === "wall" && hit.item.kind !== "wall") {
+    const placement = isGroup(hit.item) ? projectedWallPlacement(hit.item, hit.wall) : hit;
     hit.item.wall = hit.wall;
-    hit.item.wallX = hit.wallX;
-    hit.item.wallY = hit.wallY;
+    hit.item.wallX = placement.wallX;
+    hit.item.wallY = placement.wallY;
   }
+  const dragWallPlacement = hit.mode === "wall" && isGroup(hit.item) ? projectedWallPlacement(hit.item, hit.wall) : null;
+  const dragWallWidth = hit.mode === "wall" && isGroup(hit.item)
+    ? wallProjectionWidth(hit.item, hit.wall)
+    : hit.w ? hit.w / (state.view === "combo" ? layout.comboWall.scale : layout.wall?.scale || 1) : hit.item.width;
   drag = {
     id: hit.item.id,
     mode: hit.mode,
@@ -680,9 +767,9 @@ function pointerDown(event) {
     itemStart: {
       x: hit.item.x,
       y: hit.item.y,
-      wallX: hit.wallX ?? hit.item.wallX,
-      wallY: hit.wallY ?? hit.item.wallY,
-      wallWidth: hit.w ? hit.w / (state.view === "combo" ? layout.comboWall.scale : layout.wall?.scale || 1) : hit.item.width
+      wallX: dragWallPlacement?.wallX ?? hit.wallX ?? hit.item.wallX,
+      wallY: dragWallPlacement?.wallY ?? hit.wallY ?? hit.item.wallY,
+      wallWidth: dragWallWidth
     }
   };
   canvas.setPointerCapture(event.pointerId);
@@ -748,6 +835,7 @@ function selectItem(id) {
     fillForm(null);
   }
   updateSelectionPanel();
+  updateItemList();
 }
 
 function selectedItem() {
@@ -761,6 +849,11 @@ function updateSelectionPanel() {
     target.textContent = "No item selected.";
     return;
   }
+  if (isGroup(item)) {
+    const partCount = item.groupItems.length;
+    target.textContent = `${item.name}: grouped shape with ${partCount} pieces, ${round(item.width)}W x ${round(item.depth)}D x ${round(item.height)}H overall.`;
+    return;
+  }
   const where = item.kind === "floor" ? `floor at ${round(item.x)}, ${round(item.y)}` : item.kind === "wall" ? `${ROOM.walls[item.wall].label} wall at ${round(item.wallX)}, ${round(item.wallY)}` : `floor + ${ROOM.walls[item.wall].label} wall`;
   target.textContent = `${item.name}: ${round(item.width)}W x ${round(item.depth)}D x ${round(item.height)}H, ${where}.`;
 }
@@ -771,13 +864,33 @@ function updateItemList() {
   state.items.forEach(item => {
     const card = document.createElement("div");
     card.className = `item-card ${item.id === state.selectedId ? "active" : ""}`;
-    card.innerHTML = `<strong>${escapeHtml(item.name)}</strong><span>${item.kind} | ${round(item.width)}W x ${round(item.depth)}D x ${round(item.height)}H | qty ${item.qty}</span>`;
+    const checked = state.multiSelectedIds?.includes(item.id) ? "checked" : "";
+    const kindLabel = isGroup(item) ? `group (${item.groupItems.length} pieces)` : item.kind;
+    card.innerHTML = `
+      <div class="item-card-head">
+        <input type="checkbox" aria-label="Check ${escapeHtml(item.name)} for grouping" ${checked}>
+        <div><strong>${escapeHtml(item.name)}</strong><span>${kindLabel} | ${round(item.width)}W x ${round(item.depth)}D x ${round(item.height)}H | qty ${item.qty}</span></div>
+      </div>`;
+    const checkbox = card.querySelector("input");
+    checkbox.addEventListener("click", event => {
+      event.stopPropagation();
+      toggleCheckedItem(item.id, checkbox.checked);
+    });
     card.addEventListener("click", () => {
       selectItem(item.id);
       render();
     });
     list.appendChild(card);
   });
+}
+
+function toggleCheckedItem(id, checked) {
+  const ids = new Set(state.multiSelectedIds || []);
+  if (checked) ids.add(id);
+  else ids.delete(id);
+  state.multiSelectedIds = [...ids].filter(itemId => state.items.some(item => item.id === itemId));
+  autosave();
+  updateItemList();
 }
 
 function nudgeSelected(direction) {
@@ -817,6 +930,28 @@ function nudgeSelected(direction) {
 function rotateSelected() {
   const item = selectedItem();
   if (!item) return;
+  if (isGroup(item)) {
+    const oldDepth = item.depth;
+    item.groupItems = item.groupItems.map(part => {
+      const dims = floorDims(part);
+      return {
+        ...part,
+        offsetX: round(oldDepth - (Number(part.offsetY || 0) + dims.d)),
+        offsetY: round(Number(part.offsetX || 0)),
+        rotation: ((Number(part.rotation) || 0) + 90) % 360
+      };
+    });
+    const nextWidth = item.depth;
+    item.depth = item.width;
+    item.width = nextWidth;
+    item.x = clamp(item.x, 0, ROOM.width - item.width);
+    item.y = clamp(item.y, 0, ROOM.depth - item.depth);
+    syncWallFromFloor(item);
+    syncControlsToItemWall(item);
+    autosave();
+    render();
+    return;
+  }
   item.rotation = (item.rotation + 90) % 360;
   item.x = clamp(item.x, 0, ROOM.width - floorDims(item).w);
   item.y = clamp(item.y, 0, ROOM.depth - floorDims(item).d);
@@ -829,11 +964,101 @@ function rotateSelected() {
 function duplicateSelected() {
   const item = selectedItem();
   if (!item) return;
-  const copy = makeItem({ ...item, id: undefined, name: `${item.name} copy`, x: item.x + 4, y: item.y + 4, wallX: item.wallX + 4 });
+  const copy = makeItem({
+    ...item,
+    id: undefined,
+    name: `${item.name} copy`,
+    x: item.x + 4,
+    y: item.y + 4,
+    wallX: item.wallX + 4,
+    groupItems: isGroup(item) ? item.groupItems.map(part => ({ ...part, id: undefined })) : []
+  });
   state.items.push(copy);
   selectItem(copy.id);
   autosave();
   render();
+}
+
+function groupCheckedItems() {
+  const checkedIds = (state.multiSelectedIds || []).filter(id => state.items.some(item => item.id === id));
+  const candidates = checkedIds.map(id => state.items.find(item => item.id === id)).filter(Boolean);
+  const groupable = candidates.filter(item => item.kind !== "wall" && !isGroup(item));
+  if (groupable.length < 2) {
+    showStatus("Check two or more floor or floor+wall items to group.");
+    return;
+  }
+  const bounds = groupable.reduce((next, item) => {
+    const dims = floorDims(item);
+    return {
+      minX: Math.min(next.minX, item.x),
+      minY: Math.min(next.minY, item.y),
+      maxX: Math.max(next.maxX, item.x + dims.w),
+      maxY: Math.max(next.maxY, item.y + dims.d),
+      maxH: Math.max(next.maxH, item.height)
+    };
+  }, { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity, maxH: 0 });
+  const group = makeItem({
+    name: `Group: ${groupable.map(item => item.name).join(" + ").slice(0, 70)}`,
+    kind: "group",
+    width: round(bounds.maxX - bounds.minX),
+    depth: round(bounds.maxY - bounds.minY),
+    height: round(bounds.maxH),
+    qty: 1,
+    x: round(bounds.minX),
+    y: round(bounds.minY),
+    wall: nearestWallInfo({ x: bounds.minX, y: bounds.minY, width: bounds.maxX - bounds.minX, depth: bounds.maxY - bounds.minY, rotation: 0 }).wall,
+    wallY: 0,
+    color: "#d8b4fe",
+    notes: "Grouped shape. Use Ungroup to split it back into its pieces.",
+    groupItems: groupable.map(item => {
+      const part = { ...item };
+      delete part.groupItems;
+      return {
+        ...part,
+        id: undefined,
+        offsetX: round(item.x - bounds.minX),
+        offsetY: round(item.y - bounds.minY)
+      };
+    })
+  });
+  syncWallFromFloor(group);
+  const groupedIds = new Set(groupable.map(item => item.id));
+  state.items = state.items.filter(item => !groupedIds.has(item.id));
+  state.items.push(group);
+  state.multiSelectedIds = [];
+  selectItem(group.id);
+  autosave();
+  render();
+  showStatus(`Grouped ${groupable.length} items. Use Ungroup to split them later.`);
+}
+
+function ungroupSelected() {
+  const group = selectedItem();
+  if (!isGroup(group)) {
+    showStatus("Select a grouped item to ungroup.");
+    return;
+  }
+  const restored = group.groupItems.map(part => {
+    const item = makeItem({
+      ...part,
+      id: undefined,
+      x: round(group.x + Number(part.offsetX || 0)),
+      y: round(group.y + Number(part.offsetY || 0)),
+      groupItems: []
+    });
+    delete item.offsetX;
+    delete item.offsetY;
+    item.x = clamp(item.x, 0, ROOM.width - floorDims(item).w);
+    item.y = clamp(item.y, 0, ROOM.depth - floorDims(item).d);
+    syncWallFromFloor(item);
+    return item;
+  });
+  state.items = state.items.filter(item => item.id !== group.id).concat(restored);
+  state.multiSelectedIds = restored.map(item => item.id);
+  selectItem(restored[0]?.id || null);
+  autosave();
+  render();
+  showStatus(`Ungrouped ${restored.length} items.`);
 }
 
 function deleteSelected() {
@@ -894,6 +1119,7 @@ function loadNamedPlan() {
     return;
   }
   state = { ...state, ...plan.state };
+  state.multiSelectedIds = Array.isArray(state.multiSelectedIds) ? state.multiSelectedIds : [];
   document.getElementById("activeWall").value = state.activeWall;
   setView(state.view || "floor");
   selectItem(state.selectedId);
@@ -932,7 +1158,10 @@ function autosave() {
 function loadAutosave() {
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
-    if (saved?.state?.items?.length) state = { ...state, ...saved.state };
+    if (saved?.state?.items?.length) {
+      state = { ...state, ...saved.state };
+      state.multiSelectedIds = Array.isArray(state.multiSelectedIds) ? state.multiSelectedIds : [];
+    }
   } catch {
     localStorage.removeItem(STORAGE_KEY);
   }
@@ -975,13 +1204,28 @@ function importLayout(event) {
         y: Number(item.y) || 0,
         wallX: Number(item.wallX) || 0,
         wallY: Number(item.wallY) || 0,
-        rotation: Number(item.rotation) || 0
+        rotation: Number(item.rotation) || 0,
+        groupItems: Array.isArray(item.groupItems) ? item.groupItems.map(part => ({
+          ...part,
+          width: Number(part.width) || 1,
+          depth: Number(part.depth) || 1,
+          height: Number(part.height) || 1,
+          qty: Number(part.qty) || 1,
+          offsetX: Number(part.offsetX) || 0,
+          offsetY: Number(part.offsetY) || 0,
+          x: Number(part.x) || 0,
+          y: Number(part.y) || 0,
+          wallX: Number(part.wallX) || 0,
+          wallY: Number(part.wallY) || 0,
+          rotation: Number(part.rotation) || 0
+        })) : []
       }));
       state = {
         ...state,
         ...importedState,
         items: importedItems,
         selectedId: importedState.selectedId || importedItems[0]?.id || null,
+        multiSelectedIds: Array.isArray(importedState.multiSelectedIds) ? importedState.multiSelectedIds : [],
         editingId: null,
         activeWall: importedState.activeWall || state.activeWall || "north",
         view: importedState.view || state.view || "floor"

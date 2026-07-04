@@ -95,6 +95,8 @@ Inside the planner:
 - Add items with name, dimensions, quantity, URL, and notes.
 - Drag items with the mouse or trackpad.
 - Use the controls panel for precise dimensions and wall assignment.
+- Check two or more floor/floor+wall items in the placed item list and use Group Checked to move them as one odd-shaped object.
+- Use Ungroup to split a grouped item back into its original pieces.
 - Save layouts in the browser.
 - Import a previously exported JSON layout.
 - Export layouts as JSON.
