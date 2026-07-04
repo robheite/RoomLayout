@@ -94,6 +94,7 @@ p { margin: 6px 0 0; color: var(--muted); }
   display: flex;
   gap: 8px;
   align-items: center;
+  flex-wrap: wrap;
 }
 
 .shell {
