@@ -96,10 +96,14 @@ Inside the planner:
 - Drag items with the mouse or trackpad.
 - Use the controls panel for precise dimensions and wall assignment.
 - Save layouts in the browser.
+- Import a previously exported JSON layout.
 - Export layouts as JSON.
 - Export shopping lists as CSV.
+- Export print-ready PNGs for the floor plan and all four wall views.
 
 Floor objects placed against a wall can project into the matching wall view, so adjusting an item in the top-down plan keeps the wall setup in sync.
+
+Corner objects project to every wall they are snapped against. For example, a shelf placed within 4 inches of the Back wall and the Outer wall will appear in both wall views. The Back wall view shows the shelf dimension that runs left-to-right across the Back wall, while the Outer wall view shows the dimension that runs along the Outer wall.
 
 ## 8. File Guide
 
