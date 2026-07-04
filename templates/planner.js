@@ -1,0 +1,1014 @@
+const ROOM = {
+  width: 151.5,
+  depth: 156,
+  height: 96,
+  wallThickness: 1.5,
+  asset: {
+    sourceFile: "Bekka Craft Room.dae / Bekka Craft Room.glb",
+    authoringTool: "SketchUp 26.2.243",
+    createdUtc: "2026-07-04T19:02:54Z",
+    modifiedUtc: "2026-07-04T19:02:54Z",
+    units: "inches"
+  },
+  walls: {
+    north: { label: "Back", width: 151.5, height: 96 },
+    south: { label: "Family Room", width: 151.5, height: 96 },
+    east: { label: "Kitchen", width: 156, height: 96 },
+    west: { label: "Outer", width: 156, height: 96 }
+  }
+};
+
+const FIXED_ELEMENTS = [
+  {
+    id: "door-south-entry",
+    name: "Split Door",
+    type: "door",
+    wall: "east",
+    wallX: 80.74,
+    wallY: 0,
+    width: 34.76,
+    height: 86.8,
+    floor: { x: 135.47, y: 80.74, width: 16.03, depth: 34.76 },
+    note: "From SketchUp component bounds"
+  },
+  {
+    id: "window-west",
+    name: "Window",
+    type: "window",
+    wall: "north",
+    wallX: 64.29,
+    wallY: 25.5,
+    width: 40.71,
+    height: 59,
+    floor: { x: 64.29, y: 0, width: 40.71, depth: 3.56 },
+    note: "Window and trim from SketchUp export"
+  },
+  {
+    id: "folding-door-east",
+    name: "Folding Door",
+    type: "door",
+    wall: "south",
+    wallX: 48.43,
+    wallY: 0,
+    width: 53.57,
+    height: 83.25,
+    floor: { x: 48.43, y: 149.06, width: 53.57, depth: 6.94 },
+    note: "Folding door component from SketchUp export"
+  },
+  {
+    id: "outlet-south",
+    name: "Outlet",
+    type: "outlet",
+    wall: "east",
+    wallX: 59.75,
+    wallY: 14.25,
+    width: 3.5,
+    height: 5,
+    floor: { x: 151.3, y: 59.75, width: 0.2, depth: 3.5 }
+  },
+  {
+    id: "outlet-north-left",
+    name: "Outlet",
+    type: "outlet",
+    wall: "west",
+    wallX: 144,
+    wallY: 14.25,
+    width: 3.5,
+    height: 5,
+    floor: { x: 0, y: 8.5, width: 0.2, depth: 3.5 }
+  },
+  {
+    id: "outlet-north-right",
+    name: "Outlet",
+    type: "outlet",
+    wall: "west",
+    wallX: 17,
+    wallY: 14.25,
+    width: 3.5,
+    height: 5,
+    floor: { x: 0, y: 135.5, width: 0.2, depth: 3.5 }
+  },
+  {
+    id: "outlet-east",
+    name: "Outlet",
+    type: "outlet",
+    wall: "south",
+    wallX: 15.5,
+    wallY: 14.25,
+    width: 3.5,
+    height: 5,
+    floor: { x: 132.5, y: 155.8, width: 3.5, depth: 0.2 }
+  }
+];
+
+const STORAGE_KEY = "bekkaCraftRoomPlanner.v1";
+const PLAN_LIST_KEY = "bekkaCraftRoomPlanner.planList.v1";
+const WALL_SNAP_DISTANCE = 4;
+
+let state = {
+  view: "floor",
+  activeWall: "north",
+  selectedId: null,
+  editingId: null,
+  items: [
+    makeItem({ name: "Work Table", width: 60, depth: 30, height: 34, kind: "floor", x: 22, y: 22, color: "#f2c14e" }),
+    makeItem({ name: "Pegboard", width: 48, depth: 2, height: 32, kind: "wall", wall: "north", wallX: 24, wallY: 46, color: "#7cc2b8" }),
+    makeItem({ name: "Tall Shelf", width: 30, depth: 15, height: 72, kind: "both", wall: "east", x: 112, y: 24, wallX: 26, wallY: 0, color: "#f29d72" })
+  ]
+};
+
+const canvas = document.getElementById("plannerCanvas");
+const ctx = canvas.getContext("2d");
+let layout = {};
+let drag = null;
+let suppressWallFocus = false;
+let statusTimer = null;
+let lastExport = null;
+
+function makeItem(overrides = {}) {
+  const id = overrides.id || `item-${Date.now()}-${Math.round(Math.random() * 100000)}`;
+  const item = {
+    id,
+    name: "New Item",
+    width: 30,
+    depth: 15,
+    height: 30,
+    qty: 1,
+    url: "",
+    notes: "",
+    kind: "floor",
+    wall: "north",
+    x: 8,
+    y: 8,
+    wallX: 8,
+    wallY: 8,
+    rotation: 0,
+    color: "#f2c14e"
+  };
+  return { ...item, ...overrides };
+}
+
+function init() {
+  loadAutosave();
+  bindEvents();
+  refreshSavedPlans();
+  resizeCanvas();
+  selectItem(state.selectedId || state.items[0]?.id || null);
+  render();
+}
+
+function bindEvents() {
+  window.addEventListener("resize", resizeCanvas);
+  document.querySelectorAll("[data-view]").forEach(btn => {
+    btn.addEventListener("click", () => setView(btn.dataset.view));
+  });
+  document.getElementById("activeWall").addEventListener("change", event => {
+    state.activeWall = event.target.value;
+    autosave();
+    render();
+  });
+  document.getElementById("itemWall").addEventListener("change", event => {
+    state.activeWall = event.target.value;
+    document.getElementById("activeWall").value = state.activeWall;
+    render();
+  });
+  document.getElementById("itemForm").addEventListener("submit", saveFormItem);
+  document.getElementById("newItemBtn").addEventListener("click", clearForm);
+  document.getElementById("savePlanBtn").addEventListener("click", saveNamedPlan);
+  document.getElementById("loadPlanBtn").addEventListener("click", loadNamedPlan);
+  document.getElementById("exportPlanBtn").addEventListener("click", exportLayout);
+  document.getElementById("exportShoppingBtn").addEventListener("click", exportShoppingList);
+  document.getElementById("saveWallBtn").addEventListener("click", saveActiveWall);
+  document.getElementById("resetDemoBtn").addEventListener("click", resetDemo);
+  document.getElementById("rotateBtn").addEventListener("click", rotateSelected);
+  document.getElementById("duplicateBtn").addEventListener("click", duplicateSelected);
+  document.getElementById("deleteBtn").addEventListener("click", deleteSelected);
+  document.getElementById("urlAssistBtn").addEventListener("click", tryUrlDetails);
+  document.getElementById("closeExportBtn").addEventListener("click", closeExportPanel);
+  document.getElementById("copyExportBtn").addEventListener("click", copyExportText);
+  document.getElementById("downloadAgainBtn").addEventListener("click", downloadLastExport);
+  document.querySelectorAll("[data-nudge]").forEach(btn => {
+    btn.addEventListener("click", () => nudgeSelected(btn.dataset.nudge));
+  });
+  canvas.addEventListener("pointerdown", pointerDown);
+  canvas.addEventListener("pointermove", pointerMove);
+  canvas.addEventListener("pointerup", pointerUp);
+  canvas.addEventListener("pointercancel", pointerUp);
+}
+
+function resizeCanvas() {
+  const rect = canvas.getBoundingClientRect();
+  const ratio = window.devicePixelRatio || 1;
+  canvas.width = Math.max(700, Math.floor(rect.width * ratio));
+  canvas.height = Math.max(460, Math.floor(rect.height * ratio));
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  render();
+}
+
+function setView(view) {
+  state.view = view;
+  document.querySelectorAll("[data-view]").forEach(btn => {
+    btn.classList.toggle("active", btn.dataset.view === view);
+  });
+  const title = view === "floor" ? "Floor Plan" : view === "wall" ? `${wall().label} Wall` : "Floor + Wall";
+  document.getElementById("viewTitle").textContent = title;
+  autosave();
+  render();
+}
+
+function wall() {
+  return ROOM.walls[state.activeWall];
+}
+
+function showStatus(message) {
+  const bar = document.getElementById("statusBar");
+  bar.textContent = message;
+  bar.classList.add("show");
+  clearTimeout(statusTimer);
+  statusTimer = setTimeout(() => bar.classList.remove("show"), 4500);
+}
+
+function saveFormItem(event) {
+  event.preventDefault();
+  const formItem = readForm();
+  let item;
+  if (state.editingId) {
+    item = state.items.find(entry => entry.id === state.editingId);
+    Object.assign(item, formItem);
+  } else {
+    item = makeItem(formItem);
+    item.color = item.kind === "wall" ? "#7cc2b8" : item.kind === "both" ? "#f29d72" : "#f2c14e";
+    state.items.push(item);
+  }
+  if (item.kind === "both") syncWallFromFloor(item);
+  state.activeWall = item.wall;
+  document.getElementById("activeWall").value = state.activeWall;
+  selectItem(item.id);
+  autosave();
+  render();
+}
+
+function readForm() {
+  return {
+    name: value("itemName") || "Unnamed Item",
+    width: numberValue("itemWidth", 30),
+    depth: numberValue("itemDepth", 15),
+    height: numberValue("itemHeight", 30),
+    qty: Math.max(1, Math.round(numberValue("itemQty", 1))),
+    url: value("itemUrl"),
+    notes: value("itemNotes"),
+    kind: value("itemKind"),
+    wall: value("itemWall")
+  };
+}
+
+function fillForm(item) {
+  state.editingId = item?.id || null;
+  setValue("itemName", item?.name || "");
+  setValue("itemWidth", item?.width || 30);
+  setValue("itemDepth", item?.depth || 15);
+  setValue("itemHeight", item?.height || 30);
+  setValue("itemQty", item?.qty || 1);
+  setValue("itemUrl", item?.url || "");
+  setValue("itemNotes", item?.notes || "");
+  setValue("itemKind", item?.kind || "floor");
+  setValue("itemWall", item?.wall || state.activeWall);
+  document.getElementById("addUpdateBtn").textContent = item ? "Update Item" : "Add Item";
+}
+
+function clearForm() {
+  state.editingId = null;
+  state.selectedId = null;
+  fillForm(null);
+  updateSelectionPanel();
+  render();
+}
+
+function value(id) {
+  return document.getElementById(id).value.trim();
+}
+
+function numberValue(id, fallback) {
+  const parsed = Number(document.getElementById(id).value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function setValue(id, next) {
+  document.getElementById(id).value = next;
+}
+
+function render() {
+  if (!ctx) return;
+  updateViewHeader();
+  const rect = canvas.getBoundingClientRect();
+  ctx.clearRect(0, 0, rect.width, rect.height);
+  computeLayout(rect.width, rect.height);
+  if (state.view === "floor") drawFloor(layout.floor);
+  if (state.view === "wall") drawWall(layout.wall, state.activeWall);
+  if (state.view === "combo") {
+    drawFloor(layout.floor);
+    drawWall(layout.comboWall, state.activeWall, true);
+  }
+  drawFixedElements();
+  drawItems();
+  updateItemList();
+  updateSelectionPanel();
+}
+
+function updateViewHeader() {
+  const title = state.view === "floor" ? "Floor Plan" : state.view === "wall" ? `${wall().label} Wall` : "Floor + Wall";
+  document.getElementById("viewTitle").textContent = title;
+}
+
+function computeLayout(width, height) {
+  const pad = 34;
+  if (state.view === "combo") {
+    const floorBox = { x: pad, y: pad, w: width - pad * 2, h: Math.max(220, height * 0.5 - pad) };
+    const wallBox = { x: pad, y: floorBox.y + floorBox.h + 36, w: width - pad * 2, h: height - floorBox.h - pad * 3 - 36 };
+    layout.floor = fitBox(floorBox, ROOM.width, ROOM.depth);
+    layout.comboWall = fitBox(wallBox, wall().width, ROOM.height);
+    layout.wall = layout.comboWall;
+  } else if (state.view === "wall") {
+    layout.wall = fitBox({ x: pad, y: pad, w: width - pad * 2, h: height - pad * 2 }, wall().width, ROOM.height);
+  } else {
+    layout.floor = fitBox({ x: pad, y: pad, w: width - pad * 2, h: height - pad * 2 }, ROOM.width, ROOM.depth);
+  }
+}
+
+function fitBox(box, modelW, modelH) {
+  const scale = Math.min(box.w / modelW, box.h / modelH);
+  const w = modelW * scale;
+  const h = modelH * scale;
+  return { x: box.x + (box.w - w) / 2, y: box.y + (box.h - h) / 2, w, h, scale, modelW, modelH };
+}
+
+function drawFloor(box) {
+  drawGrid(box, 12);
+  ctx.fillStyle = "#c79664";
+  ctx.fillRect(box.x, box.y, box.w, box.h);
+  ctx.strokeStyle = "#2f3b45";
+  ctx.lineWidth = 4;
+  ctx.strokeRect(box.x, box.y, box.w, box.h);
+  ctx.strokeStyle = "#657681";
+  ctx.lineWidth = Math.max(2, ROOM.wallThickness * box.scale);
+  ctx.strokeRect(box.x, box.y, box.w, box.h);
+  labelBox(box, `${ROOM.width}"`, `${ROOM.depth}"`);
+}
+
+function drawFixedElements() {
+  if ((state.view === "floor" || state.view === "combo") && layout.floor) {
+    FIXED_ELEMENTS.forEach(element => drawFixedFloor(element, layout.floor));
+  }
+  if ((state.view === "wall" || state.view === "combo") && (layout.wall || layout.comboWall)) {
+    const box = state.view === "combo" ? layout.comboWall : layout.wall;
+    FIXED_ELEMENTS.filter(element => element.wall === state.activeWall).forEach(element => drawFixedWall(element, box));
+  }
+}
+
+function fixedColor(type) {
+  if (type === "window") return "#4d8ebd";
+  if (type === "outlet") return "#c2410c";
+  return "#8b5e3c";
+}
+
+function drawFixedFloor(element, box) {
+  const floor = element.floor;
+  const x = box.x + floor.x * box.scale;
+  const y = box.y + floor.y * box.scale;
+  const w = Math.max(3, floor.width * box.scale);
+  const h = Math.max(3, floor.depth * box.scale);
+  ctx.save();
+  ctx.fillStyle = fixedColor(element.type);
+  ctx.globalAlpha = element.type === "outlet" ? 0.95 : 0.38;
+  ctx.fillRect(x, y, w, h);
+  ctx.globalAlpha = 1;
+  ctx.strokeStyle = fixedColor(element.type);
+  ctx.lineWidth = element.type === "outlet" ? 2 : 3;
+  ctx.strokeRect(x, y, w, h);
+  ctx.fillStyle = "#1f2933";
+  ctx.font = "12px Segoe UI, Arial";
+  if (element.type !== "outlet") wrapLabel(element.name, x + 5, y + 16, Math.max(30, w - 8));
+  if (element.type === "outlet") {
+    ctx.beginPath();
+    ctx.arc(x + w / 2, y + h / 2, 4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawFixedWall(element, box) {
+  const x = box.x + element.wallX * box.scale;
+  const y = box.y + box.h - (element.wallY + element.height) * box.scale;
+  const w = Math.max(element.type === "outlet" ? 12 : 4, element.width * box.scale);
+  const h = Math.max(element.type === "outlet" ? 16 : 4, element.height * box.scale);
+  ctx.save();
+  ctx.fillStyle = fixedColor(element.type);
+  ctx.globalAlpha = element.type === "outlet" ? 1 : 0.32;
+  ctx.fillRect(x, y, w, h);
+  ctx.globalAlpha = 1;
+  ctx.strokeStyle = fixedColor(element.type);
+  ctx.lineWidth = 2;
+  ctx.strokeRect(x, y, w, h);
+  ctx.fillStyle = "#1f2933";
+  ctx.font = "12px Segoe UI, Arial";
+  if (element.type === "outlet") {
+    ctx.fillStyle = "#ffffff";
+    ctx.fillText("Outlet", x + 4, y - 4);
+    ctx.fillStyle = "#1f2933";
+    ctx.beginPath();
+    ctx.arc(x + w / 2, y + h / 2, 3, 0, Math.PI * 2);
+    ctx.fill();
+  } else {
+    wrapLabel(`${element.name} ${round(element.width)}" x ${round(element.height)}"`, x + 6, y + 18, Math.max(40, w - 10));
+  }
+  ctx.restore();
+}
+
+function drawWall(box, wallKey, compact = false) {
+  drawGrid(box, 12);
+  ctx.fillStyle = "#dfe7ec";
+  ctx.fillRect(box.x, box.y, box.w, box.h);
+  ctx.strokeStyle = "#2f3b45";
+  ctx.lineWidth = 3;
+  ctx.strokeRect(box.x, box.y, box.w, box.h);
+  labelBox(box, `${ROOM.walls[wallKey].width}"`, `${ROOM.height}"`, compact ? `${ROOM.walls[wallKey].label} wall` : "");
+}
+
+function drawGrid(box, spacingInches) {
+  ctx.save();
+  ctx.strokeStyle = "#d3dce3";
+  ctx.lineWidth = 1;
+  for (let x = 0; x <= box.modelW; x += spacingInches) {
+    const px = box.x + x * box.scale;
+    ctx.beginPath();
+    ctx.moveTo(px, box.y);
+    ctx.lineTo(px, box.y + box.h);
+    ctx.stroke();
+  }
+  for (let y = 0; y <= box.modelH; y += spacingInches) {
+    const py = box.y + y * box.scale;
+    ctx.beginPath();
+    ctx.moveTo(box.x, py);
+    ctx.lineTo(box.x + box.w, py);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function labelBox(box, widthLabel, heightLabel, extra = "") {
+  ctx.fillStyle = "#25313b";
+  ctx.font = "14px Segoe UI, Arial";
+  ctx.fillText(widthLabel, box.x + box.w / 2 - 20, box.y - 10);
+  ctx.save();
+  ctx.translate(box.x - 24, box.y + box.h / 2 + 20);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText(heightLabel, 0, 0);
+  ctx.restore();
+  if (extra) ctx.fillText(extra, box.x, box.y - 10);
+}
+
+function drawItems() {
+  const boxes = getDrawableItems();
+  boxes.forEach(entry => {
+    const selected = entry.item.id === state.selectedId;
+    ctx.fillStyle = entry.item.color;
+    ctx.strokeStyle = selected ? "#0b6bcb" : "#33414d";
+    ctx.lineWidth = selected ? 4 : 2;
+    ctx.fillRect(entry.x, entry.y, entry.w, entry.h);
+    ctx.strokeRect(entry.x, entry.y, entry.w, entry.h);
+    ctx.fillStyle = "#1f2933";
+    ctx.font = "13px Segoe UI, Arial";
+    const label = entry.item.qty > 1 ? `${entry.item.name} x${entry.item.qty}` : entry.item.name;
+    wrapLabel(label, entry.x + 6, entry.y + 18, Math.max(20, entry.w - 10));
+    if (selected) drawHandles(entry);
+  });
+}
+
+function drawHandles(entry) {
+  const size = 9;
+  ctx.fillStyle = "#0b6bcb";
+  [[entry.x, entry.y], [entry.x + entry.w, entry.y], [entry.x, entry.y + entry.h], [entry.x + entry.w, entry.y + entry.h]].forEach(([x, y]) => {
+    ctx.fillRect(x - size / 2, y - size / 2, size, size);
+  });
+}
+
+function wrapLabel(text, x, y, maxWidth) {
+  const words = String(text).split(/\s+/);
+  let line = "";
+  let yy = y;
+  for (const word of words) {
+    const test = line ? `${line} ${word}` : word;
+    if (ctx.measureText(test).width > maxWidth && line) {
+      ctx.fillText(line, x, yy);
+      yy += 15;
+      line = word;
+    } else {
+      line = test;
+    }
+  }
+  if (line) ctx.fillText(line, x, yy);
+}
+
+function getDrawableItems() {
+  const entries = [];
+  if ((state.view === "floor" || state.view === "combo") && layout.floor) {
+    state.items.filter(item => item.kind !== "wall").forEach(item => {
+      const dims = floorDims(item);
+      entries.push({
+        mode: "floor",
+        item,
+        x: layout.floor.x + item.x * layout.floor.scale,
+        y: layout.floor.y + item.y * layout.floor.scale,
+        w: dims.w * layout.floor.scale,
+        h: dims.d * layout.floor.scale
+      });
+    });
+  }
+  if ((state.view === "wall" || state.view === "combo") && (layout.wall || layout.comboWall)) {
+    const box = state.view === "combo" ? layout.comboWall : layout.wall;
+    state.items.forEach(item => {
+      const placement = projectedWallPlacement(item);
+      if (!placement || placement.wall !== state.activeWall) return;
+      entries.push({
+        mode: "wall",
+        item,
+        wall: placement.wall,
+        wallX: placement.wallX,
+        wallY: placement.wallY,
+        x: box.x + placement.wallX * box.scale,
+        y: box.y + box.h - (placement.wallY + item.height) * box.scale,
+        w: item.width * box.scale,
+        h: item.height * box.scale
+      });
+    });
+  }
+  return entries;
+}
+
+function floorDims(item) {
+  return item.rotation % 180 === 0 ? { w: item.width, d: item.depth } : { w: item.depth, d: item.width };
+}
+
+function nearestWallInfo(item) {
+  const dims = floorDims(item);
+  const distances = [
+    { wall: "north", distance: item.y },
+    { wall: "south", distance: ROOM.depth - (item.y + dims.d) },
+    { wall: "west", distance: item.x },
+    { wall: "east", distance: ROOM.width - (item.x + dims.w) }
+  ];
+  return distances.reduce((best, next) => next.distance < best.distance ? next : best);
+}
+
+function wallXFromFloor(item, wallKey) {
+  if (wallKey === "north") return clamp(item.x, 0, ROOM.walls[wallKey].width - item.width);
+  if (wallKey === "south") return clamp(ROOM.width - (item.x + item.width), 0, ROOM.walls[wallKey].width - item.width);
+  if (wallKey === "east") return clamp(item.y, 0, ROOM.walls[wallKey].width - item.width);
+  return clamp(ROOM.depth - (item.y + item.width), 0, ROOM.walls[wallKey].width - item.width);
+}
+
+function projectedWallPlacement(item) {
+  if (item.kind === "wall") {
+    return { wall: item.wall, wallX: item.wallX, wallY: item.wallY };
+  }
+  const nearest = nearestWallInfo(item);
+  if (item.kind === "floor" && nearest.distance > WALL_SNAP_DISTANCE) return null;
+  return {
+    wall: item.kind === "both" ? item.wall : nearest.wall,
+    wallX: item.kind === "both" ? item.wallX : wallXFromFloor(item, nearest.wall),
+    wallY: item.kind === "floor" ? 0 : item.wallY
+  };
+}
+
+function syncWallFromFloor(item) {
+  if (item.kind === "wall") return;
+  const nearest = nearestWallInfo(item);
+  if (item.kind === "floor" && nearest.distance > WALL_SNAP_DISTANCE) return;
+  item.wall = nearest.wall;
+  item.wallX = wallXFromFloor(item, nearest.wall);
+  item.wallY = clamp(item.wallY || 0, 0, ROOM.height - item.height);
+  if (item.kind === "floor") item.wallY = 0;
+}
+
+function syncFloorFromWall(item) {
+  if (item.kind === "wall") return;
+  const dims = floorDims(item);
+  if (item.wall === "north") {
+    item.x = clamp(item.wallX, 0, ROOM.width - dims.w);
+    item.y = 0;
+  }
+  if (item.wall === "south") {
+    item.x = clamp(ROOM.width - (item.wallX + dims.w), 0, ROOM.width - dims.w);
+    item.y = ROOM.depth - dims.d;
+  }
+  if (item.wall === "west") {
+    item.x = 0;
+    item.y = clamp(ROOM.depth - (item.wallX + dims.d), 0, ROOM.depth - dims.d);
+  }
+  if (item.wall === "east") {
+    item.x = ROOM.width - dims.w;
+    item.y = clamp(item.wallX, 0, ROOM.depth - dims.d);
+  }
+  if (item.kind === "floor") item.wallY = 0;
+}
+
+function syncControlsToItemWall(item) {
+  if (!item || suppressWallFocus) return;
+  const placement = projectedWallPlacement(item);
+  if (!placement) return;
+  state.activeWall = placement.wall;
+  document.getElementById("activeWall").value = placement.wall;
+  document.getElementById("itemWall").value = placement.wall;
+}
+
+function pointerDown(event) {
+  const point = canvasPoint(event);
+  const hit = [...getDrawableItems()].reverse().find(entry => inRect(point, entry));
+  if (!hit) {
+    selectItem(null);
+    render();
+    return;
+  }
+  selectItem(hit.item.id);
+  if (hit.mode === "wall" && hit.item.kind !== "wall") {
+    hit.item.wall = hit.wall;
+    hit.item.wallX = hit.wallX;
+    hit.item.wallY = hit.wallY;
+  }
+  drag = {
+    id: hit.item.id,
+    mode: hit.mode,
+    startX: point.x,
+    startY: point.y,
+    pointerId: event.pointerId,
+    itemStart: { x: hit.item.x, y: hit.item.y, wallX: hit.wallX ?? hit.item.wallX, wallY: hit.wallY ?? hit.item.wallY }
+  };
+  canvas.setPointerCapture(event.pointerId);
+}
+
+function pointerMove(event) {
+  if (!drag) return;
+  const point = canvasPoint(event);
+  const item = selectedItem();
+  if (!item) return;
+  const dx = point.x - drag.startX;
+  const dy = point.y - drag.startY;
+  suppressWallFocus = true;
+  if (drag.mode === "floor" && layout.floor) {
+    item.x = clamp(drag.itemStart.x + dx / layout.floor.scale, 0, ROOM.width - floorDims(item).w);
+    item.y = clamp(drag.itemStart.y + dy / layout.floor.scale, 0, ROOM.depth - floorDims(item).d);
+    syncWallFromFloor(item);
+  } else {
+    const box = state.view === "combo" ? layout.comboWall : layout.wall;
+    item.wallX = clamp(drag.itemStart.wallX + dx / box.scale, 0, wall().width - item.width);
+    item.wallY = clamp(drag.itemStart.wallY - dy / box.scale, 0, ROOM.height - item.height);
+    syncFloorFromWall(item);
+  }
+  suppressWallFocus = false;
+  autosave();
+  render();
+}
+
+function pointerUp(event) {
+  const item = selectedItem();
+  if (item) syncControlsToItemWall(item);
+  if (event?.pointerId != null) {
+    try { canvas.releasePointerCapture(event.pointerId); } catch {}
+  } else if (drag?.pointerId != null) {
+    try { canvas.releasePointerCapture(drag.pointerId); } catch {}
+  }
+  drag = null;
+  render();
+}
+
+function canvasPoint(event) {
+  const rect = canvas.getBoundingClientRect();
+  return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+}
+
+function inRect(point, rect) {
+  return point.x >= rect.x && point.x <= rect.x + rect.w && point.y >= rect.y && point.y <= rect.y + rect.h;
+}
+
+function selectItem(id) {
+  state.selectedId = id;
+  const item = selectedItem();
+  if (item) {
+    if (item.kind !== "floor") {
+      state.activeWall = item.wall || state.activeWall;
+      document.getElementById("activeWall").value = state.activeWall;
+    }
+    fillForm(item);
+  } else {
+    fillForm(null);
+  }
+  updateSelectionPanel();
+}
+
+function selectedItem() {
+  return state.items.find(item => item.id === state.selectedId) || null;
+}
+
+function updateSelectionPanel() {
+  const item = selectedItem();
+  const target = document.getElementById("selectedSummary");
+  if (!item) {
+    target.textContent = "No item selected.";
+    return;
+  }
+  const where = item.kind === "floor" ? `floor at ${round(item.x)}, ${round(item.y)}` : item.kind === "wall" ? `${ROOM.walls[item.wall].label} wall at ${round(item.wallX)}, ${round(item.wallY)}` : `floor + ${ROOM.walls[item.wall].label} wall`;
+  target.textContent = `${item.name}: ${round(item.width)}W x ${round(item.depth)}D x ${round(item.height)}H, ${where}.`;
+}
+
+function updateItemList() {
+  const list = document.getElementById("itemList");
+  list.innerHTML = "";
+  state.items.forEach(item => {
+    const card = document.createElement("div");
+    card.className = `item-card ${item.id === state.selectedId ? "active" : ""}`;
+    card.innerHTML = `<strong>${escapeHtml(item.name)}</strong><span>${item.kind} | ${round(item.width)}W x ${round(item.depth)}D x ${round(item.height)}H | qty ${item.qty}</span>`;
+    card.addEventListener("click", () => {
+      selectItem(item.id);
+      render();
+    });
+    list.appendChild(card);
+  });
+}
+
+function nudgeSelected(direction) {
+  const item = selectedItem();
+  if (!item) return;
+  const step = 1;
+  if (state.view === "wall" || (state.view === "combo" && item.kind === "wall")) {
+    if (direction === "left") item.wallX -= step;
+    if (direction === "right") item.wallX += step;
+    if (direction === "up") item.wallY += step;
+    if (direction === "down") item.wallY -= step;
+    item.wallX = clamp(item.wallX, 0, ROOM.walls[item.wall].width - item.width);
+    item.wallY = clamp(item.wallY, 0, ROOM.height - item.height);
+    syncFloorFromWall(item);
+    syncControlsToItemWall(item);
+  } else {
+    if (direction === "left") item.x -= step;
+    if (direction === "right") item.x += step;
+    if (direction === "up") item.y -= step;
+    if (direction === "down") item.y += step;
+    item.x = clamp(item.x, 0, ROOM.width - floorDims(item).w);
+    item.y = clamp(item.y, 0, ROOM.depth - floorDims(item).d);
+    syncWallFromFloor(item);
+    syncControlsToItemWall(item);
+  }
+  autosave();
+  render();
+}
+
+function rotateSelected() {
+  const item = selectedItem();
+  if (!item) return;
+  item.rotation = (item.rotation + 90) % 360;
+  item.x = clamp(item.x, 0, ROOM.width - floorDims(item).w);
+  item.y = clamp(item.y, 0, ROOM.depth - floorDims(item).d);
+  syncWallFromFloor(item);
+  syncControlsToItemWall(item);
+  autosave();
+  render();
+}
+
+function duplicateSelected() {
+  const item = selectedItem();
+  if (!item) return;
+  const copy = makeItem({ ...item, id: undefined, name: `${item.name} copy`, x: item.x + 4, y: item.y + 4, wallX: item.wallX + 4 });
+  state.items.push(copy);
+  selectItem(copy.id);
+  autosave();
+  render();
+}
+
+function deleteSelected() {
+  if (!state.selectedId) return;
+  state.items = state.items.filter(item => item.id !== state.selectedId);
+  selectItem(null);
+  autosave();
+  render();
+}
+
+async function tryUrlDetails() {
+  const url = value("itemUrl");
+  if (!url) {
+    alert("Paste a product URL first.");
+    return;
+  }
+  try {
+    const response = await fetch(url, { mode: "cors" });
+    const html = await response.text();
+    const title = (html.match(/<title[^>]*>([^<]+)<\/title>/i) || [])[1];
+    const price = (html.match(/(?:\"price\"|price)[^0-9$]{0,12}([$]?[0-9,.]+)/i) || [])[1];
+    if (title && !value("itemName")) setValue("itemName", cleanText(title));
+    if (price) {
+      const notes = value("itemNotes");
+      setValue("itemNotes", `${notes}${notes ? "\n" : ""}Detected price: ${price}`);
+    }
+    alert(title || price ? "I pulled what the website allowed." : "The URL loaded, but I did not find obvious product details.");
+  } catch {
+    const host = new URL(url).hostname.replace(/^www\./, "");
+    if (!value("itemName")) setValue("itemName", host);
+    alert("That site blocked automatic details. I saved the URL and filled the name from the website domain.");
+  }
+}
+
+function saveNamedPlan() {
+  const saveNameInput = document.getElementById("saveName");
+  const name = saveNameInput.value.trim() || `Craft room ${new Date().toLocaleDateString()}`;
+  saveNameInput.value = name;
+  try {
+    const plans = readPlans();
+    plans[name] = exportObject();
+    localStorage.setItem(PLAN_LIST_KEY, JSON.stringify(plans));
+    refreshSavedPlans();
+    autosave();
+    document.getElementById("savedPlans").value = name;
+    showStatus(`Saved layout "${name}" in this browser.`);
+  } catch {
+    showStatus("Save failed in this browser. Use Export Layout to save a JSON file instead.");
+  }
+}
+
+function loadNamedPlan() {
+  const name = document.getElementById("savedPlans").value;
+  if (!name) return;
+  const plan = readPlans()[name];
+  if (!plan) {
+    showStatus("No saved layout selected.");
+    return;
+  }
+  state = { ...state, ...plan.state };
+  document.getElementById("activeWall").value = state.activeWall;
+  setView(state.view || "floor");
+  selectItem(state.selectedId);
+  render();
+  showStatus(`Loaded layout "${name}".`);
+}
+
+function refreshSavedPlans() {
+  const select = document.getElementById("savedPlans");
+  select.innerHTML = "";
+  const plans = Object.keys(readPlans());
+  if (!plans.length) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "No saved layouts";
+    select.appendChild(option);
+    return;
+  }
+  plans.forEach(name => {
+    const option = document.createElement("option");
+    option.value = name;
+    option.textContent = name;
+    select.appendChild(option);
+  });
+}
+
+function readPlans() {
+  try { return JSON.parse(localStorage.getItem(PLAN_LIST_KEY) || "{}"); }
+  catch { return {}; }
+}
+
+function autosave() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(exportObject()));
+}
+
+function loadAutosave() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
+    if (saved?.state?.items?.length) state = { ...state, ...saved.state };
+  } catch {
+    localStorage.removeItem(STORAGE_KEY);
+  }
+}
+
+function exportObject(extra = {}) {
+  return {
+    app: "Bekka Craft Room Planner",
+    exportedAt: new Date().toISOString(),
+    room: ROOM,
+    fixedElements: FIXED_ELEMENTS,
+    state,
+    ...extra
+  };
+}
+
+function exportLayout() {
+  downloadJson("bekka-craft-room-layout.json", exportObject());
+  showStatus("Layout export is ready. If no file downloaded, use the export panel.");
+}
+
+function saveActiveWall() {
+  const wallKey = state.activeWall;
+  const items = state.items.filter(item => item.kind !== "floor" && item.wall === wallKey);
+  downloadJson(`bekka-craft-room-${wallKey}-wall.json`, exportObject({ wall: ROOM.walls[wallKey], wallKey, items }));
+  showStatus(`${ROOM.walls[wallKey].label} wall export is ready.`);
+}
+
+function exportShoppingList() {
+  const headers = ["Name", "Qty", "Width", "Depth", "Height", "Kind", "Wall", "URL", "Notes"];
+  const rows = state.items.map(item => [
+    item.name,
+    item.qty,
+    round(item.width),
+    round(item.depth),
+    round(item.height),
+    item.kind,
+    item.kind === "floor" ? "" : ROOM.walls[item.wall].label,
+    item.url,
+    item.notes
+  ]);
+  const csv = [headers, ...rows].map(row => row.map(csvCell).join(",")).join("\n");
+  downloadText("bekka-craft-room-shopping-list.csv", csv, "text/csv");
+  showStatus("Shopping list export is ready. If no file downloaded, use the export panel.");
+}
+
+function downloadJson(filename, data) {
+  downloadText(filename, JSON.stringify(data, null, 2), "application/json");
+}
+
+function downloadText(filename, text, type) {
+  lastExport = { filename, text, type };
+  showExportPanel(filename, text, type);
+  tryDownload(filename, text, type);
+}
+
+function tryDownload(filename, text, type) {
+  try {
+    const blob = new Blob([text], { type });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    link.rel = "noopener";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch {
+    showStatus("Download was blocked. Copy the export text from the panel instead.");
+  }
+}
+
+function showExportPanel(filename, text, type) {
+  document.getElementById("exportTitle").textContent = filename;
+  document.getElementById("exportHint").textContent = type === "text/csv"
+    ? "CSV shopping list. If the download did not start, copy this text or use Download again."
+    : "JSON layout data. If the download did not start, copy this text or use Download again.";
+  document.getElementById("exportText").value = text;
+  document.getElementById("exportPanel").hidden = false;
+}
+
+function closeExportPanel() {
+  document.getElementById("exportPanel").hidden = true;
+}
+
+function copyExportText() {
+  const textArea = document.getElementById("exportText");
+  textArea.focus();
+  textArea.select();
+  try {
+    document.execCommand("copy");
+    showStatus("Copied export text.");
+  } catch {
+    showStatus("Copy failed. Select the text and copy it manually.");
+  }
+}
+
+function downloadLastExport() {
+  if (!lastExport) return;
+  tryDownload(lastExport.filename, lastExport.text, lastExport.type);
+  showStatus(`Download requested for ${lastExport.filename}.`);
+}
+
+function resetDemo() {
+  if (!confirm("Reset to the starter layout?")) return;
+  localStorage.removeItem(STORAGE_KEY);
+  location.reload();
+}
+
+function csvCell(value) {
+  return `"${String(value ?? "").replaceAll('"', '""')}"`;
+}
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), Math.max(min, max));
+}
+
+function round(value) {
+  return Math.round(Number(value) * 100) / 100;
+}
+
+function cleanText(text) {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+function escapeHtml(text) {
+  return String(text).replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
+}
+
+init();
