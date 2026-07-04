@@ -76,12 +76,20 @@
               </select>
             </label>
           </div>
-          <label>Color
-            <div class="color-row">
-              <input id="itemColor" type="color" value="#f2c14e" aria-label="Item color picker">
-              <input id="itemColorHex" inputmode="text" maxlength="7" value="#f2c14e" aria-label="Item color hex code" placeholder="#f2c14e">
-            </div>
-          </label>
+          <div class="grid-2">
+            <label>Shape color
+              <div class="color-row">
+                <input id="itemColor" type="color" value="#f2c14e" aria-label="Shape color picker">
+                <input id="itemColorHex" inputmode="text" maxlength="7" value="#f2c14e" aria-label="Shape color hex code" placeholder="#f2c14e">
+              </div>
+            </label>
+            <label>Text color
+              <div class="color-row">
+                <input id="itemTextColor" type="color" value="#1f2933" aria-label="Text color picker">
+                <input id="itemTextColorHex" inputmode="text" maxlength="7" value="#1f2933" aria-label="Text color hex code" placeholder="#1f2933">
+              </div>
+            </label>
+          </div>
           <label>Notes
             <textarea id="itemNotes" rows="3" placeholder="Color, finish, needed brackets, etc."></textarea>
           </label>
@@ -94,18 +102,15 @@
       </section>
 
       <section>
-        <h2>Saved</h2>
+        <h2>File Save</h2>
         <label>Layout name
           <input id="saveName" placeholder="Craft room layout">
         </label>
         <div class="button-row">
-          <select id="savedPlans"></select>
-          <button id="loadPlanBtn">Load</button>
-        </div>
-        <div class="button-row">
-          <button id="saveWallBtn">Save Wall</button>
+          <button id="saveWallBtn">Save Wall File</button>
           <button id="resetDemoBtn">Reset</button>
         </div>
+        <p class="small-note">Save Layout downloads a JSON file. Use Import Layout to load it again.</p>
       </section>
     </aside>
 
@@ -123,14 +128,17 @@
                 <option value="west">Outer - 156 in</option>
           </select>
         </label>
+        <label class="zoom-control">Zoom
+          <input id="viewZoom" type="range" min="80" max="160" value="100" step="5">
+        </label>
       </div>
 
       <div class="canvas-wrap">
         <canvas id="plannerCanvas" width="1100" height="760"></canvas>
       </div>
 
-      <section class="help">
-        <h2>Controls</h2>
+      <details class="help">
+        <summary>Controls</summary>
         <div class="help-grid">
           <div><strong>Drag</strong><span>Move the selected item on the floor or wall.</span></div>
           <div><strong>Click</strong><span>Select an item and load its measurements.</span></div>
@@ -140,7 +148,7 @@
           <div><strong>Print</strong><span>Download PNG views for the floor and each wall.</span></div>
           <div><strong>Fixed</strong><span>Doors, windows, and outlets are locked from the SketchUp export.</span></div>
         </div>
-      </section>
+      </details>
     </section>
 
     <aside class="panel right-panel">

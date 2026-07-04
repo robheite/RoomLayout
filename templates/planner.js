@@ -102,13 +102,13 @@ const FIXED_ELEMENTS = [
 ];
 
 const STORAGE_KEY = "bekkaCraftRoomPlanner.v1";
-const PLAN_LIST_KEY = "bekkaCraftRoomPlanner.planList.v1";
 const WALL_SNAP_DISTANCE = 4;
 let itemIdCounter = 0;
 
 let state = {
   view: "floor",
   activeWall: "north",
+  viewZoom: 1,
   selectedId: null,
   multiSelectedIds: [],
   editingId: null,
@@ -148,6 +148,7 @@ function makeItem(overrides = {}) {
     wallY: 8,
     rotation: 0,
     color: "#f2c14e",
+    textColor: "#1f2933",
     groupItems: []
   };
   return { ...item, ...cleanOverrides };
@@ -164,7 +165,7 @@ function createItemId() {
 function init() {
   loadAutosave();
   bindEvents();
-  refreshSavedPlans();
+  document.getElementById("viewZoom").value = Math.round((state.viewZoom || 1) * 100);
   resizeCanvas();
   selectItem(state.selectedId || state.items[0]?.id || null);
   render();
@@ -201,10 +202,25 @@ function bindEvents() {
   document.getElementById("itemColorHex").addEventListener("blur", event => {
     syncColorInputs(normalizeHexColor(event.target.value) || document.getElementById("itemColor").value);
   });
+  document.getElementById("itemTextColor").addEventListener("input", event => {
+    syncTextColorInputs(event.target.value, "picker");
+  });
+  document.getElementById("itemTextColorHex").addEventListener("input", event => {
+    const normalized = normalizeHexColor(event.target.value);
+    if (normalized) syncTextColorInputs(normalized, "hex");
+  });
+  document.getElementById("itemTextColorHex").addEventListener("blur", event => {
+    syncTextColorInputs(normalizeHexColor(event.target.value) || document.getElementById("itemTextColor").value);
+  });
+  document.getElementById("viewZoom").addEventListener("input", event => {
+    state.viewZoom = Number(event.target.value) / 100;
+    applyCanvasZoom();
+    autosave();
+    resizeCanvas();
+  });
   document.getElementById("itemForm").addEventListener("submit", saveFormItem);
   document.getElementById("newItemBtn").addEventListener("click", clearForm);
   document.getElementById("savePlanBtn").addEventListener("click", saveNamedPlan);
-  document.getElementById("loadPlanBtn").addEventListener("click", loadNamedPlan);
   document.getElementById("importPlanBtn").addEventListener("click", () => document.getElementById("importPlanFile").click());
   document.getElementById("importPlanFile").addEventListener("change", importLayout);
   document.getElementById("exportPlanBtn").addEventListener("click", exportLayout);
@@ -231,6 +247,7 @@ function bindEvents() {
 }
 
 function resizeCanvas() {
+  applyCanvasZoom();
   const rect = canvas.getBoundingClientRect();
   const ratio = window.devicePixelRatio || 1;
   canvas.width = Math.max(700, Math.floor(rect.width * ratio));
@@ -246,6 +263,7 @@ function setView(view) {
   });
   const title = view === "floor" ? "Floor Plan" : view === "wall" ? `${wall().label} Wall` : "Floor + Wall";
   document.getElementById("viewTitle").textContent = title;
+  document.getElementById("viewZoom").value = Math.round((state.viewZoom || 1) * 100);
   autosave();
   render();
 }
@@ -275,9 +293,10 @@ function saveFormItem(event) {
         url: formItem.url,
         notes: formItem.notes,
         wall: formItem.wall,
-        color: formItem.color
+        color: formItem.color,
+        textColor: formItem.textColor
       });
-      item.groupItems = item.groupItems.map(part => ({ ...part, color: formItem.color }));
+      item.groupItems = item.groupItems.map(part => ({ ...part, color: formItem.color, textColor: formItem.textColor }));
     } else {
       Object.assign(item, formItem);
     }
@@ -304,7 +323,8 @@ function readForm() {
     notes: value("itemNotes"),
     kind: value("itemKind"),
     wall: value("itemWall"),
-    color: normalizeHexColor(value("itemColorHex")) || value("itemColor") || defaultColorForKind(value("itemKind"))
+    color: normalizeHexColor(value("itemColorHex")) || value("itemColor") || defaultColorForKind(value("itemKind")),
+    textColor: normalizeHexColor(value("itemTextColorHex")) || value("itemTextColor") || defaultTextColor()
   };
 }
 
@@ -320,6 +340,7 @@ function fillForm(item) {
   setValue("itemKind", isGroup(item) ? "floor" : item?.kind || "floor");
   setValue("itemWall", item?.wall || state.activeWall);
   syncColorInputs(item?.color || defaultColorForKind(item?.kind || value("itemKind") || "floor"));
+  syncTextColorInputs(item?.textColor || defaultTextColor());
   document.getElementById("addUpdateBtn").textContent = isGroup(item) ? "Update Group" : item ? "Update Item" : "Add Item";
 }
 
@@ -342,6 +363,10 @@ function defaultColorForKind(kind) {
   return "#f2c14e";
 }
 
+function defaultTextColor() {
+  return "#1f2933";
+}
+
 function normalizeHexColor(color) {
   const raw = String(color || "").trim();
   const match = raw.match(/^#?([0-9a-fA-F]{6})$/);
@@ -355,6 +380,21 @@ function syncColorInputs(color, source = "") {
   if (source !== "hex") hex.value = normalized;
   if (source !== "picker") picker.value = normalized;
   if (source === "picker") hex.value = normalized;
+}
+
+function syncTextColorInputs(color, source = "") {
+  const normalized = normalizeHexColor(color) || defaultTextColor();
+  const picker = document.getElementById("itemTextColor");
+  const hex = document.getElementById("itemTextColorHex");
+  if (source !== "hex") hex.value = normalized;
+  if (source !== "picker") picker.value = normalized;
+  if (source === "picker") hex.value = normalized;
+}
+
+function applyCanvasZoom() {
+  const zoom = clamp(Number(state.viewZoom) || 1, 0.8, 1.6);
+  canvas.style.width = `${zoom * 100}%`;
+  canvas.style.height = `${zoom * 100}%`;
 }
 
 function numberValue(id, fallback) {
@@ -398,10 +438,14 @@ function updateViewHeader() {
 }
 
 function computeLayout(width, height) {
-  const pad = 34;
+  const pad = 24;
   if (state.view === "combo") {
-    const floorBox = { x: pad, y: pad, w: width - pad * 2, h: Math.max(220, height * 0.5 - pad) };
-    const wallBox = { x: pad, y: floorBox.y + floorBox.h + 36, w: width - pad * 2, h: height - floorBox.h - pad * 3 - 36 };
+    const gap = 22;
+    const availableH = Math.max(320, height - pad * 2 - gap);
+    const floorH = Math.max(180, availableH * 0.52);
+    const wallH = Math.max(160, availableH - floorH);
+    const floorBox = { x: pad, y: pad, w: width - pad * 2, h: floorH };
+    const wallBox = { x: pad, y: floorBox.y + floorBox.h + gap, w: width - pad * 2, h: wallH };
     layout.floor = fitBox(floorBox, ROOM.width, ROOM.depth);
     layout.comboWall = fitBox(wallBox, wall().width, ROOM.height);
     layout.wall = layout.comboWall;
@@ -553,7 +597,7 @@ function drawItems() {
     ctx.lineWidth = selected ? 4 : 2;
     ctx.fillRect(entry.x, entry.y, entry.w, entry.h);
     ctx.strokeRect(entry.x, entry.y, entry.w, entry.h);
-    ctx.fillStyle = "#1f2933";
+    ctx.fillStyle = entry.textColor || entry.item.textColor || defaultTextColor();
     ctx.font = "13px Segoe UI, Arial";
     const baseLabel = entry.label || entry.item.name;
     const label = entry.item.qty > 1 && !entry.label ? `${baseLabel} x${entry.item.qty}` : baseLabel;
@@ -645,6 +689,7 @@ function groupFloorEntries(group) {
       part,
       label: part.name,
       color: part.color,
+      textColor: part.textColor,
       x: layout.floor.x + absolute.x * layout.floor.scale,
       y: layout.floor.y + absolute.y * layout.floor.scale,
       w: dims.w * layout.floor.scale,
@@ -665,6 +710,7 @@ function groupWallEntries(group, box) {
       part,
       label: part.name,
       color: part.color,
+      textColor: part.textColor,
       wall: placement.wall,
       wallX: placement.wallX,
       wallY: placement.wallY,
@@ -1059,6 +1105,7 @@ function groupCheckedItems() {
     wall: nearestWallInfo({ x: bounds.minX, y: bounds.minY, width: bounds.maxX - bounds.minX, depth: bounds.maxY - bounds.minY, rotation: 0 }).wall,
     wallY: 0,
     color: "#d8b4fe",
+    textColor: defaultTextColor(),
     notes: "Grouped shape. Use Ungroup to split it back into its pieces.",
     groupItems: groupable.map(item => {
       const part = { ...item };
@@ -1147,58 +1194,10 @@ function saveNamedPlan() {
   const saveNameInput = document.getElementById("saveName");
   const name = saveNameInput.value.trim() || `Craft room ${new Date().toLocaleDateString()}`;
   saveNameInput.value = name;
-  try {
-    const plans = readPlans();
-    plans[name] = exportObject();
-    localStorage.setItem(PLAN_LIST_KEY, JSON.stringify(plans));
-    refreshSavedPlans();
-    autosave();
-    document.getElementById("savedPlans").value = name;
-    showStatus(`Saved layout "${name}" in this browser.`);
-  } catch {
-    showStatus("Save failed in this browser. Use Export Layout to save a JSON file instead.");
-  }
-}
-
-function loadNamedPlan() {
-  const name = document.getElementById("savedPlans").value;
-  if (!name) return;
-  const plan = readPlans()[name];
-  if (!plan) {
-    showStatus("No saved layout selected.");
-    return;
-  }
-  state = { ...state, ...plan.state };
-  state.multiSelectedIds = Array.isArray(state.multiSelectedIds) ? state.multiSelectedIds : [];
-  document.getElementById("activeWall").value = state.activeWall;
-  setView(state.view || "floor");
-  selectItem(state.selectedId);
-  render();
-  showStatus(`Loaded layout "${name}".`);
-}
-
-function refreshSavedPlans() {
-  const select = document.getElementById("savedPlans");
-  select.innerHTML = "";
-  const plans = Object.keys(readPlans());
-  if (!plans.length) {
-    const option = document.createElement("option");
-    option.value = "";
-    option.textContent = "No saved layouts";
-    select.appendChild(option);
-    return;
-  }
-  plans.forEach(name => {
-    const option = document.createElement("option");
-    option.value = name;
-    option.textContent = name;
-    select.appendChild(option);
-  });
-}
-
-function readPlans() {
-  try { return JSON.parse(localStorage.getItem(PLAN_LIST_KEY) || "{}"); }
-  catch { return {}; }
+  const filename = `${slugify(name)}-layout.json`;
+  downloadJson(filename, exportObject({ layoutName: name }));
+  autosave();
+  showStatus(`Saved layout file requested: ${filename}. Check Downloads or choose a save location if your browser asks.`);
 }
 
 function autosave() {
@@ -1229,8 +1228,7 @@ function exportObject(extra = {}) {
 }
 
 function exportLayout() {
-  downloadJson("bekka-craft-room-layout.json", exportObject());
-  showStatus("Layout export is ready. If no file downloaded, use the export panel.");
+  saveNamedPlan();
 }
 
 function importLayout(event) {
@@ -1256,6 +1254,7 @@ function importLayout(event) {
         wallY: Number(item.wallY) || 0,
         rotation: Number(item.rotation) || 0,
         color: normalizeHexColor(item.color) || defaultColorForKind(item.kind),
+        textColor: normalizeHexColor(item.textColor) || defaultTextColor(),
         groupItems: Array.isArray(item.groupItems) ? item.groupItems.map(part => ({
           ...part,
           width: Number(part.width) || 1,
@@ -1269,7 +1268,8 @@ function importLayout(event) {
           wallX: Number(part.wallX) || 0,
           wallY: Number(part.wallY) || 0,
           rotation: Number(part.rotation) || 0,
-          color: normalizeHexColor(part.color) || defaultColorForKind(part.kind)
+          color: normalizeHexColor(part.color) || defaultColorForKind(part.kind),
+          textColor: normalizeHexColor(part.textColor) || defaultTextColor()
         })) : []
       }));
       state = {
@@ -1280,9 +1280,11 @@ function importLayout(event) {
         multiSelectedIds: Array.isArray(importedState.multiSelectedIds) ? importedState.multiSelectedIds : [],
         editingId: null,
         activeWall: importedState.activeWall || state.activeWall || "north",
-        view: importedState.view || state.view || "floor"
+        view: importedState.view || state.view || "floor",
+        viewZoom: Number(importedState.viewZoom) || 1
       };
       document.getElementById("activeWall").value = state.activeWall;
+      document.getElementById("viewZoom").value = Math.round(state.viewZoom * 100);
       setView(state.view);
       selectItem(state.selectedId);
       autosave();
@@ -1307,7 +1309,7 @@ function saveActiveWall() {
 }
 
 function exportShoppingList() {
-  const headers = ["Name", "Qty", "Width", "Depth", "Height", "Kind", "Color", "Wall Views", "URL", "Notes"];
+  const headers = ["Name", "Qty", "Width", "Depth", "Height", "Kind", "Shape Color", "Text Color", "Wall Views", "URL", "Notes"];
   const rows = state.items.map(item => [
     item.name,
     item.qty,
@@ -1316,6 +1318,7 @@ function exportShoppingList() {
     round(item.height),
     item.kind,
     item.color,
+    item.textColor,
     wallLabelsForItem(item),
     item.url,
     item.notes
@@ -1466,6 +1469,13 @@ function round(value) {
 
 function cleanText(text) {
   return text.replace(/\s+/g, " ").trim();
+}
+
+function slugify(text) {
+  return cleanText(text)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "") || "roomlayout";
 }
 
 function escapeHtml(text) {

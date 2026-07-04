@@ -20,10 +20,10 @@ The planner supports:
 - individual wall elevation planning
 - combined floor and wall review
 - manual item entry with name, dimensions, quantity, notes, and URL
-- item colors through a basic picker or manual hex code
+- shape and text colors through basic pickers or manual hex codes
 - manual Group/Ungroup for combining measured pieces into odd-shaped furniture like L desks
 - layout import from previously exported JSON
-- saved layouts in the browser
+- JSON layout save files downloaded to disk
 - JSON layout export
 - CSV shopping list export
 - PNG print export for the floor plan and each wall

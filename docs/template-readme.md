@@ -94,11 +94,12 @@ Inside the planner:
 - Use Both view to compare floor placement with the active wall.
 - Add items with name, dimensions, quantity, URL, and notes.
 - Pick an item color with the color picker or type a hex code.
+- Pick a text color for item labels when the shape color is dark.
 - Drag items with the mouse or trackpad.
 - Use the controls panel for precise dimensions and wall assignment.
 - Check two or more floor/floor+wall items in the placed item list and use Group Checked to move them as one odd-shaped object.
 - Use Ungroup to split a grouped item back into its original pieces.
-- Save layouts in the browser.
+- Save layouts as downloaded JSON files.
 - Import a previously exported JSON layout.
 - Export layouts as JSON.
 - Export shopping lists as CSV.
